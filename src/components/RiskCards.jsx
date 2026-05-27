@@ -1,5 +1,7 @@
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { analyzeRisks, getTotalInvestableAssets, getTotalNetWorth } from '../utils/riskEngine';
+import { generateRiskNarrative } from '../utils/claudeAdvisor';
 
 // ── Hardcoded risk content ────────────────────────────────────────────────────
 
@@ -132,9 +134,20 @@ function SeverityBadge({ severity }) {
   );
 }
 
-function RiskCard({ risk }) {
+function WhySkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse" aria-label="Loading AI analysis">
+      <div className="h-3.5 bg-[#334155] rounded w-full" />
+      <div className="h-3.5 bg-[#334155] rounded w-11/12" />
+      <div className="h-3.5 bg-[#334155] rounded w-3/5" />
+    </div>
+  );
+}
+
+function RiskCard({ risk, narrative, isLoading }) {
   const content = RISK_CONTENT[risk.id];
   const { border } = SEVERITY_CONFIG[risk.severity];
+  const whyText = narrative ?? content.why;
 
   return (
     <div className={`bg-[#1E293B] rounded-xl border border-[#334155] border-l-4 ${border} overflow-hidden`}>
@@ -150,7 +163,16 @@ function RiskCard({ risk }) {
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
             Why this matters for you
           </p>
-          <p className="text-slate-300 text-sm leading-relaxed">{content.why}</p>
+          {isLoading ? (
+            <WhySkeleton />
+          ) : (
+            <>
+              <p className="text-slate-300 text-sm leading-relaxed">{whyText}</p>
+              {narrative && (
+                <p className="text-[10px] text-slate-600 mt-2 italic">AI-generated</p>
+              )}
+            </>
+          )}
         </div>
 
         {/* Options */}
@@ -200,12 +222,41 @@ function EmptyState() {
 
 export default function RiskCards() {
   const navigate = useNavigate();
-  const formData = loadFormData();
+
+  // Load once — stable reference for the lifetime of this component
+  const [formData] = useState(loadFormData);
+
+  // { [riskId]: string } — populated as API calls resolve
+  const [narratives, setNarratives] = useState({});
+  // Set of riskIds currently awaiting their API response
+  const [loadingIds, setLoadingIds] = useState(new Set());
+
+  const risks     = useMemo(() => formData ? analyzeRisks(formData) : [], [formData]);
+  const triggered = useMemo(() => risks.filter(r => r.triggered), [risks]);
+
+  useEffect(() => {
+    if (!triggered.length) return;
+
+    setLoadingIds(new Set(triggered.map(r => r.id)));
+
+    triggered.forEach(async (risk) => {
+      try {
+        const text = await generateRiskNarrative(risk, formData);
+        setNarratives(prev => ({ ...prev, [risk.id]: text }));
+      } catch {
+        // silently fall back to hardcoded why text
+      } finally {
+        setLoadingIds(prev => {
+          const next = new Set(prev);
+          next.delete(risk.id);
+          return next;
+        });
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!formData) return <EmptyState />;
 
-  const risks     = analyzeRisks(formData);
-  const triggered = risks.filter(r => r.triggered);
   const investable = getTotalInvestableAssets(formData);
   const netWorth   = getTotalNetWorth(formData);
 
@@ -268,7 +319,12 @@ export default function RiskCards() {
       {triggered.length > 0 ? (
         <div className="space-y-4">
           {triggered.map(risk => (
-            <RiskCard key={risk.id} risk={risk} />
+            <RiskCard
+              key={risk.id}
+              risk={risk}
+              narrative={narratives[risk.id] ?? null}
+              isLoading={loadingIds.has(risk.id)}
+            />
           ))}
         </div>
       ) : (

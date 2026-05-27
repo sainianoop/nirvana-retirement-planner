@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const US_STATES = [
@@ -14,6 +14,7 @@ const US_STATES = [
 ];
 
 const DEFAULT_STATE = {
+  // Section 1 — Household
   userAge: '',
   hasPartner: false,
   partnerAge: '',
@@ -22,18 +23,36 @@ const DEFAULT_STATE = {
   state: '',
   numChildren: 0,
   children: [],
+
+  // Section 2 — Current Income
   householdIncome: '',
+  incomeType: '',
+  partnerIncomeIncluded: false,
+
+  // Section 2 — Expense breakdown (optional)
+  showExpenseBreakdown: false,
+  expenseHousing: '',
+  expenseChildcare: '',
+  expenseHealthcare: '',
+  expenseFood: '',
+  expenseTransportation: '',
+  expenseTravel: '',
+  expenseOther: '',
+
+  // Section 2 — Retirement spending
   retirementSpending: '',
-  hasMortgage: false,
-  mortgagePayment: '',
-  mortgagePayoffYear: '',
+
+  // Section 2 — Healthcare
   healthcareToday: '',
   healthcareRetirement: '',
+
+  // Section 3 — Assets
   balance401k: '',
   balanceTraditionalIRA: '',
   balanceRothIRA: '',
-  balanceBrokerage: '',
   balanceHSA: '',
+  balanceStocks: '',
+  balanceBrokerage: '',
   balance529: '',
   equityPrimaryHome: '',
   equityRental: '',
@@ -41,11 +60,14 @@ const DEFAULT_STATE = {
   cashMoneyMarket: '',
   crypto: '',
   pensionMonthlyIncome: '',
+
+  // Section 4 — Additional factors
   hasConcentratedStock: false,
-  retiringWithin18Months: false,
   retiringBeforeAge65: false,
   livingAbroadPlanned: false,
   liquidityEventExpected: false,
+  realEstateHeavy: false,
+  additionalContext: '',
 };
 
 function loadFromStorage() {
@@ -73,6 +95,14 @@ function SectionHeader({ number, title }) {
       </span>
       <h2 className="text-[#F59E0B] font-semibold text-lg tracking-wide">{title}</h2>
     </div>
+  );
+}
+
+function SubHeader({ title }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155]">
+      {title}
+    </p>
   );
 }
 
@@ -115,40 +145,74 @@ function DollarInput({ value, onChange, placeholder = '0' }) {
   );
 }
 
-function AssetRow({ label, value, onChange, optional }) {
+function AssetRow({ label, subLabel, value, onChange, optional, placeholder }) {
   return (
     <>
-      <div className="flex items-center text-sm text-slate-300">
-        {label}
-        {optional && <span className="ml-1.5 text-slate-500 text-xs">(optional)</span>}
+      <div className="flex flex-col justify-center">
+        <div className="flex items-center text-sm text-slate-300">
+          {label}
+          {optional && <span className="ml-1.5 text-slate-500 text-xs">(optional)</span>}
+        </div>
+        {subLabel && (
+          <p className="text-xs text-slate-500 mt-0.5 leading-snug">{subLabel}</p>
+        )}
       </div>
-      <DollarInput value={value} onChange={onChange} />
+      <DollarInput value={value} onChange={onChange} placeholder={placeholder} />
     </>
   );
 }
 
-const KEY_FLAGS = [
+const ADDITIONAL_FACTORS = [
   {
     key: 'hasConcentratedStock',
-    label:
-      'I have a concentrated stock position (more than 30% of my portfolio in 1–3 stocks with large unrealized gains)',
+    title: 'Concentrated Position',
+    desc: 'I hold 30%+ of my portfolio in 1–3 individual stocks',
   },
-  { key: 'retiringWithin18Months', label: 'I plan to retire within the next 18 months' },
-  { key: 'retiringBeforeAge65', label: 'I plan to retire before age 65' },
+  {
+    key: 'retiringBeforeAge65',
+    title: 'Early Retirement',
+    desc: 'I plan to retire before Medicare eligibility at 65',
+  },
   {
     key: 'livingAbroadPlanned',
-    label: 'I plan to spend significant time living outside the US in retirement',
+    title: 'Living Abroad',
+    desc: 'I plan to spend significant time outside the US in retirement',
   },
   {
     key: 'liquidityEventExpected',
-    label:
-      "I'm expecting a large liquidity event in the next 3 years (business sale, large RSU vest, inheritance)",
+    title: 'Liquidity Event',
+    desc: 'Business sale, large RSU vest, or inheritance expected within 3 years',
+  },
+  {
+    key: 'realEstateHeavy',
+    title: 'Real Estate Heavy',
+    desc: 'More than 35% of my net worth is in real estate',
   },
 ];
+
+const EXPENSE_KEYS = [
+  'expenseHousing', 'expenseChildcare', 'expenseHealthcare',
+  'expenseFood', 'expenseTransportation', 'expenseTravel', 'expenseOther',
+];
+
+const EXPENSE_LABELS = {
+  expenseHousing: 'Housing (mortgage / rent)',
+  expenseChildcare: 'Childcare / education',
+  expenseHealthcare: 'Healthcare / insurance',
+  expenseFood: 'Food & dining',
+  expenseTransportation: 'Transportation',
+  expenseTravel: 'Travel & leisure',
+  expenseOther: 'Everything else',
+};
+
+function fmtCurrency(n) {
+  return '$' + Math.round(n).toLocaleString();
+}
 
 export default function IntakeForm() {
   const [form, setForm] = useState(loadFromStorage);
   const navigate = useNavigate();
+  const prevSuggestedRef = useRef(null);
 
   // Keep children array in sync with numChildren
   useEffect(() => {
@@ -164,6 +228,24 @@ export default function IntakeForm() {
     });
   }, [form.numChildren]);
 
+  // Expense totals
+  const totalMonthly = EXPENSE_KEYS.reduce(
+    (sum, k) => sum + (parseFloat(form[k]) || 0), 0
+  );
+  const annualExpenses = totalMonthly * 12;
+  const suggestedRetirement = Math.round(annualExpenses * 0.85);
+
+  // Auto-fill retirement spending from expense breakdown (only if field is empty or equals our prior auto-value)
+  useEffect(() => {
+    if (!form.showExpenseBreakdown || totalMonthly === 0) return;
+    const currentVal = parseFloat(form.retirementSpending) || 0;
+    const prev = prevSuggestedRef.current;
+    if (!form.retirementSpending || currentVal === prev) {
+      prevSuggestedRef.current = suggestedRetirement;
+      setForm(f => ({ ...f, retirementSpending: String(suggestedRetirement) }));
+    }
+  }, [suggestedRetirement, form.showExpenseBreakdown]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function set(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
@@ -177,12 +259,26 @@ export default function IntakeForm() {
   }
 
   function handleSubmit() {
-    localStorage.setItem('nirvana_intake', JSON.stringify(form));
+    const userAge  = parseFloat(form.userAge) || 0;
+    const retireAge = parseFloat(form.retirementAgeUser) || 0;
+    // Derived: retiring within ~18 months
+    const retiringSoon = retireAge > 0 && userAge > 0 && (retireAge - userAge) <= 1.5;
+
+    const dataToSave = { ...form, retiringWithin18Months: retiringSoon };
+    localStorage.setItem('nirvana_intake', JSON.stringify(dataToSave));
+    localStorage.setItem('nirvana_retiring_soon', JSON.stringify(retiringSoon));
+    if (form.additionalContext) {
+      localStorage.setItem('nirvana_additional_context', form.additionalContext);
+    }
     navigate('/risk');
   }
 
   const numChildren = Number(form.numChildren);
   const showPartnerRetirement = form.hasPartner && form.partnerAge !== '';
+  const expenseAutoFilled =
+    form.showExpenseBreakdown &&
+    totalMonthly > 0 &&
+    parseFloat(form.retirementSpending) === suggestedRetirement;
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -196,9 +292,7 @@ export default function IntakeForm() {
             <div>
               <label className={labelClass}>Your age</label>
               <input
-                type="number"
-                min="18"
-                max="99"
+                type="number" min="18" max="99"
                 value={form.userAge}
                 onChange={e => set('userAge', e.target.value)}
                 placeholder="e.g. 45"
@@ -208,9 +302,7 @@ export default function IntakeForm() {
             <div>
               <label className={labelClass}>Target retirement age — you</label>
               <input
-                type="number"
-                min="40"
-                max="80"
+                type="number" min="40" max="80"
                 value={form.retirementAgeUser}
                 onChange={e => set('retirementAgeUser', e.target.value)}
                 placeholder="e.g. 62"
@@ -229,9 +321,7 @@ export default function IntakeForm() {
               <div>
                 <label className={labelClass}>Partner's age</label>
                 <input
-                  type="number"
-                  min="18"
-                  max="99"
+                  type="number" min="18" max="99"
                   value={form.partnerAge}
                   onChange={e => set('partnerAge', e.target.value)}
                   placeholder="e.g. 43"
@@ -242,9 +332,7 @@ export default function IntakeForm() {
                 <div>
                   <label className={labelClass}>Target retirement age — partner</label>
                   <input
-                    type="number"
-                    min="40"
-                    max="80"
+                    type="number" min="40" max="80"
                     value={form.retirementAgePartner}
                     onChange={e => set('retirementAgePartner', e.target.value)}
                     placeholder="e.g. 60"
@@ -257,15 +345,9 @@ export default function IntakeForm() {
 
           <div>
             <label className={labelClass}>State of residence</label>
-            <select
-              value={form.state}
-              onChange={e => set('state', e.target.value)}
-              className={inputClass}
-            >
+            <select value={form.state} onChange={e => set('state', e.target.value)} className={inputClass}>
               <option value="">Select a state…</option>
-              {US_STATES.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
 
@@ -274,8 +356,7 @@ export default function IntakeForm() {
             <div className="flex gap-2">
               {[0, 1, 2, 3, 4, 5, 6].map(n => (
                 <button
-                  key={n}
-                  type="button"
+                  key={n} type="button"
                   onClick={() => set('numChildren', n)}
                   className={
                     'w-10 h-10 rounded-lg text-sm font-semibold transition-colors ' +
@@ -283,9 +364,7 @@ export default function IntakeForm() {
                       ? 'bg-[#F59E0B] text-[#0F172A]'
                       : 'bg-[#0F172A] text-slate-300 border border-[#334155] hover:border-[#475569]')
                   }
-                >
-                  {n}
-                </button>
+                >{n}</button>
               ))}
             </div>
           </div>
@@ -298,9 +377,7 @@ export default function IntakeForm() {
                   <div className="w-32">
                     <label className="text-xs text-slate-400 mb-1.5 block">Child {i + 1} age</label>
                     <input
-                      type="number"
-                      min="0"
-                      max="25"
+                      type="number" min="0" max="25"
                       value={form.children[i]?.age ?? ''}
                       onChange={e => setChild(i, 'age', e.target.value)}
                       placeholder="Age"
@@ -325,92 +402,148 @@ export default function IntakeForm() {
       <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
         <SectionHeader number="2" title="Income & Spending" />
 
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-5">
-            <div>
-              <label className={labelClass}>
-                Current household income{' '}
-                <span className="text-slate-500 font-normal">(pre-tax)</span>
-              </label>
-              <DollarInput
-                value={form.householdIncome}
-                onChange={v => set('householdIncome', v)}
-                placeholder="e.g. 250000"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>
-                Expected retirement spending{' '}
-                <span className="text-slate-500 font-normal">(post-tax / yr)</span>
-              </label>
-              <DollarInput
-                value={form.retirementSpending}
-                onChange={v => set('retirementSpending', v)}
-                placeholder="e.g. 120000"
-              />
-            </div>
-          </div>
+        <div className="space-y-6">
 
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <Toggle checked={form.hasMortgage} onChange={v => set('hasMortgage', v)} />
-              <span className="text-slate-300 text-sm">I have a mortgage</span>
+          {/* Current Income */}
+          <div className="space-y-4">
+            <SubHeader title="Current Income" />
+
+            <div className="grid grid-cols-2 gap-5">
+              <div>
+                <label className={labelClass}>
+                  Annual household income <span className="text-slate-500 font-normal">(pre-tax)</span>
+                </label>
+                <DollarInput
+                  value={form.householdIncome}
+                  onChange={v => set('householdIncome', v)}
+                  placeholder="e.g. 250,000"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Income type</label>
+                <select
+                  value={form.incomeType}
+                  onChange={e => set('incomeType', e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select…</option>
+                  <option value="salary_w2">Salary / W2</option>
+                  <option value="self_employed">Self-employed</option>
+                  <option value="mix">Mix of both</option>
+                </select>
+              </div>
             </div>
-            {form.hasMortgage && (
-              <div className="grid grid-cols-2 gap-5 pl-5 border-l-2 border-[#F59E0B]/30">
-                <div>
-                  <label className={labelClass}>Monthly payment</label>
-                  <DollarInput
-                    value={form.mortgagePayment}
-                    onChange={v => set('mortgagePayment', v)}
-                    placeholder="e.g. 3200"
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Payoff year</label>
-                  <input
-                    type="number"
-                    min="2025"
-                    max="2060"
-                    value={form.mortgagePayoffYear}
-                    onChange={e => set('mortgagePayoffYear', e.target.value)}
-                    placeholder="e.g. 2038"
-                    className={inputClass}
-                  />
-                </div>
+
+            {form.hasPartner && (
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={form.partnerIncomeIncluded}
+                  onChange={v => set('partnerIncomeIncluded', v)}
+                />
+                <span className="text-slate-300 text-sm">Partner income included in total above</span>
               </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
-            <div>
-              <label className={labelClass}>Healthcare today</label>
-              <select
-                value={form.healthcareToday}
-                onChange={e => set('healthcareToday', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select…</option>
-                <option value="employer">Employer</option>
-                <option value="spouse_employer">Spouse's employer</option>
-                <option value="self_employed">Self-employed / marketplace</option>
-                <option value="none">None</option>
-              </select>
+          {/* Monthly Expense Breakdown */}
+          <div className="space-y-4">
+            <SubHeader title="Current Monthly Expenses" />
+
+            <div className="flex items-center gap-3">
+              <Toggle
+                checked={form.showExpenseBreakdown}
+                onChange={v => set('showExpenseBreakdown', v)}
+              />
+              <span className="text-slate-300 text-sm">
+                Help me break down my expenses <span className="text-slate-500">(optional)</span>
+              </span>
             </div>
+
+            {form.showExpenseBreakdown && (
+              <div className="pl-5 border-l-2 border-[#F59E0B]/30 space-y-3">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                  {EXPENSE_KEYS.map(key => (
+                    <div key={key}>
+                      <label className="text-xs text-slate-400 mb-1.5 block">{EXPENSE_LABELS[key]}</label>
+                      <DollarInput
+                        value={form[key]}
+                        onChange={v => set(key, v)}
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+                {totalMonthly > 0 && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-[#334155]">
+                    <span className="text-xs text-slate-500 uppercase tracking-wider">Total monthly</span>
+                    <span className="text-white font-semibold">{fmtCurrency(totalMonthly)}</span>
+                    <span className="text-slate-500 text-xs">/</span>
+                    <span className="text-xs text-slate-500 uppercase tracking-wider">Annual</span>
+                    <span className="text-white font-semibold">{fmtCurrency(annualExpenses)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Retirement Spending */}
+          <div className="space-y-3">
+            <SubHeader title="Retirement Spending" />
+
             <div>
-              <label className={labelClass}>Healthcare plan in retirement</label>
-              <select
-                value={form.healthcareRetirement}
-                onChange={e => set('healthcareRetirement', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select…</option>
-                <option value="spouse_employer">Spouse's employer</option>
-                <option value="aca">ACA marketplace</option>
-                <option value="not_sure">Not sure yet</option>
-              </select>
+              <label className={labelClass}>
+                Expected annual spending in retirement <span className="text-slate-500 font-normal">(post-tax)</span>
+              </label>
+              <DollarInput
+                value={form.retirementSpending}
+                onChange={v => {
+                  prevSuggestedRef.current = null; // user took manual control
+                  set('retirementSpending', v);
+                }}
+                placeholder="e.g. 120,000"
+              />
+              {expenseAutoFilled && (
+                <p className="text-xs text-slate-500 mt-1.5 italic">
+                  Pre-filled at 85% of current expenses — a common rule of thumb
+                </p>
+              )}
             </div>
           </div>
+
+          {/* Healthcare */}
+          <div className="space-y-3">
+            <SubHeader title="Healthcare" />
+            <div className="grid grid-cols-2 gap-5">
+              <div>
+                <label className={labelClass}>Coverage today</label>
+                <select
+                  value={form.healthcareToday}
+                  onChange={e => set('healthcareToday', e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select…</option>
+                  <option value="employer">Employer</option>
+                  <option value="spouse_employer">Spouse's employer</option>
+                  <option value="self_employed">Self-employed / marketplace</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Plan in retirement</label>
+                <select
+                  value={form.healthcareRetirement}
+                  onChange={e => set('healthcareRetirement', e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select…</option>
+                  <option value="spouse_employer">Spouse's employer</option>
+                  <option value="aca">ACA marketplace</option>
+                  <option value="not_sure">Not sure yet</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -419,41 +552,100 @@ export default function IntakeForm() {
         <SectionHeader number="3" title="Assets by Account Type" />
 
         <div className="grid grid-cols-[1fr_1fr] gap-x-10 gap-y-4 items-center">
-          <AssetRow label="401(k) / 403(b)" value={form.balance401k} onChange={v => set('balance401k', v)} />
-          <AssetRow label="Traditional IRA" value={form.balanceTraditionalIRA} onChange={v => set('balanceTraditionalIRA', v)} />
-          <AssetRow label="Roth IRA / Roth 401(k)" value={form.balanceRothIRA} onChange={v => set('balanceRothIRA', v)} />
-          <AssetRow label="Taxable brokerage" value={form.balanceBrokerage} onChange={v => set('balanceBrokerage', v)} />
+
+          {/* Retirement Accounts */}
+          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155]">
+            Retirement Accounts
+          </p>
+          <AssetRow label="401(k) / 403(b)" value={form.balance401k} onChange={v => set('balance401k', v)} placeholder="e.g. 150,000" />
+          <AssetRow label="Traditional IRA" value={form.balanceTraditionalIRA} onChange={v => set('balanceTraditionalIRA', v)} placeholder="e.g. 80,000" />
+          <AssetRow label="Roth IRA / Roth 401(k)" value={form.balanceRothIRA} onChange={v => set('balanceRothIRA', v)} placeholder="e.g. 60,000" />
           <AssetRow label="HSA" value={form.balanceHSA} onChange={v => set('balanceHSA', v)} />
-          <AssetRow label="529 total balance" value={form.balance529} onChange={v => set('balance529', v)} />
-          <AssetRow label="Real estate equity — primary home" value={form.equityPrimaryHome} onChange={v => set('equityPrimaryHome', v)} />
-          <AssetRow label="Rental property equity" value={form.equityRental} onChange={v => set('equityRental', v)} />
-          <AssetRow label="Business / private equity" value={form.equityBusiness} onChange={v => set('equityBusiness', v)} />
-          <AssetRow label="Cash / money market" value={form.cashMoneyMarket} onChange={v => set('cashMoneyMarket', v)} />
+
+          {/* Brokerage & Investments */}
+          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
+            Brokerage &amp; Investments
+          </p>
+          <AssetRow
+            label="Stocks / Individual Equities"
+            subLabel="Individual stock positions (not held in a brokerage account)"
+            value={form.balanceStocks}
+            onChange={v => set('balanceStocks', v)}
+          />
+          <AssetRow
+            label="Taxable Brokerage"
+            subLabel="Mutual funds, ETFs, index funds"
+            value={form.balanceBrokerage}
+            onChange={v => set('balanceBrokerage', v)}
+          />
           <AssetRow label="Crypto" value={form.crypto} onChange={v => set('crypto', v)} optional />
-          <AssetRow label="Pension / annuity (monthly income)" value={form.pensionMonthlyIncome} onChange={v => set('pensionMonthlyIncome', v)} />
+
+          {/* Real Estate */}
+          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
+            Real Estate
+          </p>
+          <AssetRow label="Primary Home Equity" value={form.equityPrimaryHome} onChange={v => set('equityPrimaryHome', v)} />
+          <AssetRow label="Rental Property Equity" value={form.equityRental} onChange={v => set('equityRental', v)} />
+
+          {/* Other Assets */}
+          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
+            Other Assets
+          </p>
+          <AssetRow label="529 Total Balance" value={form.balance529} onChange={v => set('balance529', v)} />
+          <AssetRow label="Business / Private Equity" value={form.equityBusiness} onChange={v => set('equityBusiness', v)} />
+          <AssetRow label="Cash / Money Market" value={form.cashMoneyMarket} onChange={v => set('cashMoneyMarket', v)} />
+          <AssetRow
+            label="Pension / Annuity"
+            subLabel="Monthly income — not a lump sum"
+            value={form.pensionMonthlyIncome}
+            onChange={v => set('pensionMonthlyIncome', v)}
+          />
+
         </div>
       </section>
 
-      {/* ── SECTION 4: Key Flags ─────────────────────────────── */}
+      {/* ── SECTION 4: Additional Factors ────────────────────── */}
       <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
-        <SectionHeader number="4" title="Key Flags" />
+        <SectionHeader number="4" title="Additional Factors" />
         <p className="text-slate-400 text-sm mb-6 -mt-3">
-          These unlock specific risk factors in your analysis.
+          These help us identify risks specific to your situation.
         </p>
 
-        <div className="space-y-3">
-          {KEY_FLAGS.map(({ key, label }) => (
-            <div
-              key={key}
-              className="flex items-start gap-4 p-4 rounded-xl bg-[#0F172A] border border-[#334155] hover:border-[#475569] transition-colors cursor-pointer"
-              onClick={() => set(key, !form[key])}
-            >
-              <div className="mt-0.5" onClick={e => e.stopPropagation()}>
-                <Toggle checked={form[key]} onChange={v => set(key, v)} />
-              </div>
-              <span className="text-slate-200 text-sm leading-relaxed">{label}</span>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 gap-3">
+          {ADDITIONAL_FACTORS.map(({ key, title, desc }) => {
+            const selected = form[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => set(key, !selected)}
+                className={
+                  'text-left p-4 rounded-xl border transition-all ' +
+                  (selected
+                    ? 'border-[#F59E0B] bg-[#F59E0B]/10 ring-1 ring-[#F59E0B]/20'
+                    : 'border-[#334155] bg-[#0F172A] hover:border-[#475569]')
+                }
+              >
+                <p className={`text-sm font-semibold mb-1 ${selected ? 'text-[#F59E0B]' : 'text-white'}`}>
+                  {title}
+                </p>
+                <p className="text-xs text-slate-400 leading-snug">{desc}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-5">
+          <label className={labelClass}>
+            Anything else we should know about your situation?
+          </label>
+          <textarea
+            value={form.additionalContext}
+            onChange={e => set('additionalContext', e.target.value)}
+            placeholder="e.g. I have a pension from a prior employer, or I'm supporting aging parents..."
+            rows={3}
+            className={`${inputClass} resize-none`}
+          />
         </div>
       </section>
 
