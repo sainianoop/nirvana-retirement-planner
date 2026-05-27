@@ -144,25 +144,31 @@ function FrequencyToggle({ value, onChange, options = ['Annual', 'Monthly'] }) {
 // These helpers convert between stored and displayed values when the user changes
 // the frequency toggle — the underlying stored value never changes on a toggle switch.
 
+// Conversion helpers
+// Income & retirement spending are stored as annual integers.
+// Expense fields are stored as monthly integers.
+// All helpers normalise to a whole-number string so the input never
+// receives a raw stored value that could drift from the display value.
+
 function annualToDisplay(storedAnnual, freq) {
   if (storedAnnual === '') return '';
   const n = parseFloat(storedAnnual) || 0;
-  return freq === 'monthly' ? String(Math.round(n / 12)) : storedAnnual;
+  return freq === 'monthly' ? String(Math.round(n / 12)) : String(Math.round(n));
 }
 function displayToAnnual(inputVal, freq) {
   if (inputVal === '') return '';
   const n = parseFloat(inputVal) || 0;
-  return freq === 'monthly' ? String(Math.round(n * 12)) : inputVal;
+  return freq === 'monthly' ? String(Math.round(n * 12)) : String(Math.round(n));
 }
 function monthlyToDisplay(storedMonthly, freq) {
   if (storedMonthly === '') return '';
   const n = parseFloat(storedMonthly) || 0;
-  return freq === 'annual' ? String(Math.round(n * 12)) : storedMonthly;
+  return freq === 'annual' ? String(Math.round(n * 12)) : String(Math.round(n));
 }
 function displayToMonthly(inputVal, freq) {
   if (inputVal === '') return '';
   const n = parseFloat(inputVal) || 0;
-  return freq === 'annual' ? String(Math.round(n / 12)) : inputVal;
+  return freq === 'annual' ? String(Math.round(n / 12)) : String(Math.round(n));
 }
 
 function Toggle({ checked, onChange }) {
@@ -193,10 +199,10 @@ function DollarInput({ value, onChange, placeholder = '0' }) {
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm select-none">$</span>
       <input
-        type="number"
-        min="0"
+        type="text"
+        inputMode="numeric"
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ''))}
         placeholder={placeholder}
         className={`${inputClass} pl-7`}
       />
@@ -329,7 +335,7 @@ export default function IntakeForm() {
     if (form.additionalContext) {
       localStorage.setItem('nirvana_additional_context', form.additionalContext);
     }
-    navigate('/risk');
+    navigate('/outlook');
   }
 
   const numChildren = Number(form.numChildren);
