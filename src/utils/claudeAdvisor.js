@@ -149,3 +149,111 @@ Output only the explanation. No headers, no bullets, no preamble, no sign-off.`;
   const data = await response.json();
   return data.content[0].text.trim();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// generateActionPlan — called once by ActionPlan.jsx; result cached in
+// localStorage under "nirvana_action_plan".
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ASSET_LABELS = {
+  balance401k:           '401(k)',
+  balanceTraditionalIRA: 'Traditional IRA',
+  balanceRothIRA:        'Roth IRA',
+  balanceBrokerage:      'Taxable Brokerage',
+  balanceHSA:            'HSA',
+  balance529:            '529 Plan',
+  cashMoneyMarket:       'Cash / Money Market',
+  crypto:                'Crypto',
+  equityPrimaryHome:     'Primary Home Equity',
+  equityRental:          'Rental Property Equity',
+  equityBusiness:        'Business Equity',
+  pension:               'Pension (Annual)',
+};
+
+export async function generateActionPlan(formData, risks) {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY is not configured');
+
+  const userAge    = num(formData.userAge);
+  const partnerAge = num(formData.partnerAge);
+  const retireAge  = num(formData.retirementAgeUser);
+  const yearsOut   = Math.max(0, retireAge - userAge);
+
+  const assetLines = Object.entries(ASSET_LABELS)
+    .filter(([key]) => num(formData[key]) > 0)
+    .map(([key, label]) => `  - ${label}: ${fmt(num(formData[key]))}`)
+    .join('\n') || '  - No assets entered';
+
+  const triggeredRisks = risks
+    .filter(r => r.triggered)
+    .map(r => `  - ${r.title}`)
+    .join('\n') || '  - None';
+
+  const additionalContext = (formData.additionalContext || '').trim();
+
+  const prompt = `You are a retirement planning assistant helping a financial planner's client build a personalized action plan.
+
+Client profile:
+- Age: ${userAge}${partnerAge ? `\n- Partner age: ${partnerAge}` : ''}
+- Target retirement age: ${retireAge}
+- Years to retirement: ${yearsOut}
+
+Assets (non-zero):
+${assetLines}
+
+Triggered risk flags:
+${triggeredRisks}
+${additionalContext ? `\nAdditional context from client: "${additionalContext}"` : ''}
+
+Generate a concrete, personalized retirement action plan in three time buckets: Next 30 Days, Next 90 Days, This Year. Each bucket should have 3-5 specific action items. Each action item should be one sentence, specific and named (e.g. 'Increase 401k contribution to IRS maximum of $23,000' not 'Save more for retirement'). Reference the user's actual numbers where relevant. Do not give investment advice — recommend actions and advisor conversations.
+
+Return JSON only in this format:
+{
+  "thirty_days": ["action 1", "action 2", ...],
+  "ninety_days": ["action 1", "action 2", ...],
+  "this_year": ["action 1", "action 2", ...]
+}`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text().catch(() => String(response.status));
+    throw new Error(`Anthropic API ${response.status}: ${err}`);
+  }
+
+  const data = await response.json();
+  const text = data.content[0].text.trim();
+
+  // Extract JSON — handle optional markdown code fences
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON found in response');
+
+  const parsed = JSON.parse(jsonMatch[0]);
+
+  if (
+    !Array.isArray(parsed.thirty_days) ||
+    !Array.isArray(parsed.ninety_days) ||
+    !Array.isArray(parsed.this_year)
+  ) {
+    throw new Error('Invalid response structure from Claude');
+  }
+
+  return {
+    thirty_days: parsed.thirty_days,
+    ninety_days: parsed.ninety_days,
+    this_year:   parsed.this_year,
+  };
+}
