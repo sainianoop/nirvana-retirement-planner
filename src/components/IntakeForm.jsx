@@ -210,6 +210,54 @@ function DollarInput({ value, onChange, placeholder = '0' }) {
   );
 }
 
+/**
+ * Like DollarInput, but designed for frequency-converted fields (income,
+ * expenses, retirement spending).
+ *
+ * Problem with converting on every keystroke:
+ *   User types "3" in Annual mode → displayToMonthly("3","annual")
+ *   = Math.round(3/12) = 0 → stored "0" → displayed "0" → field locked.
+ *
+ * Fix: buffer the raw digits locally; run toStore/toDisplay only on blur.
+ * During typing the parent's stored value never changes, so there is no
+ * lossy round-trip. On blur we commit and normalise the display.
+ *
+ * The useEffect syncs the display when the frequency key or an external
+ * stored-value change (auto-fill, frequency toggle) arrives.  storedValue
+ * does NOT change while the user is typing (we only call onChange on blur),
+ * so the effect never clobbers mid-type input.
+ */
+function FreqField({ storedValue, freqKey, toDisplay, toStore, onChange, placeholder = '0' }) {
+  const [text, setText] = useState(() => toDisplay(storedValue));
+  // Keep a ref so the effect always calls the latest toDisplay without
+  // needing it as a dependency (it's a new function every render).
+  const toDisplayRef = useRef(toDisplay);
+  toDisplayRef.current = toDisplay;
+
+  useEffect(() => {
+    setText(toDisplayRef.current(storedValue));
+  }, [freqKey, storedValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm select-none">$</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={text}
+        placeholder={placeholder}
+        onChange={e => setText(e.target.value.replace(/[^0-9]/g, ''))}
+        onBlur={() => {
+          const stored = toStore(text);
+          onChange(stored);
+          setText(toDisplayRef.current(stored)); // normalise display
+        }}
+        className={`${inputClass} pl-7`}
+      />
+    </div>
+  );
+}
+
 function AssetRow({ label, subLabel, value, onChange, optional, placeholder }) {
   return (
     <>
@@ -487,9 +535,12 @@ export default function IntakeForm() {
                   {form.incomeFrequency === 'monthly' ? 'Monthly' : 'Annual'} household income{' '}
                   <span className="text-slate-500 font-normal">(pre-tax)</span>
                 </label>
-                <DollarInput
-                  value={annualToDisplay(form.householdIncome, form.incomeFrequency)}
-                  onChange={v => set('householdIncome', displayToAnnual(v, form.incomeFrequency))}
+                <FreqField
+                  storedValue={form.householdIncome}
+                  freqKey={form.incomeFrequency}
+                  toDisplay={v => annualToDisplay(v, form.incomeFrequency)}
+                  toStore={v => displayToAnnual(v, form.incomeFrequency)}
+                  onChange={v => set('householdIncome', v)}
                   placeholder={form.incomeFrequency === 'monthly' ? 'e.g. 20,833' : 'e.g. 250,000'}
                 />
               </div>
@@ -549,9 +600,12 @@ export default function IntakeForm() {
                   {EXPENSE_KEYS.map(key => (
                     <div key={key}>
                       <label className="text-xs text-slate-400 mb-1.5 block">{EXPENSE_LABELS[key]}</label>
-                      <DollarInput
-                        value={monthlyToDisplay(form[key], form.expenseFrequency)}
-                        onChange={v => set(key, displayToMonthly(v, form.expenseFrequency))}
+                      <FreqField
+                        storedValue={form[key]}
+                        freqKey={form.expenseFrequency}
+                        toDisplay={v => monthlyToDisplay(v, form.expenseFrequency)}
+                        toStore={v => displayToMonthly(v, form.expenseFrequency)}
+                        onChange={v => set(key, v)}
                         placeholder="0"
                       />
                     </div>
@@ -599,11 +653,14 @@ export default function IntakeForm() {
                 Expected {form.retirementFrequency === 'monthly' ? 'monthly' : 'annual'} spending in retirement{' '}
                 <span className="text-slate-500 font-normal">(post-tax)</span>
               </label>
-              <DollarInput
-                value={annualToDisplay(form.retirementSpending, form.retirementFrequency)}
+              <FreqField
+                storedValue={form.retirementSpending}
+                freqKey={form.retirementFrequency}
+                toDisplay={v => annualToDisplay(v, form.retirementFrequency)}
+                toStore={v => displayToAnnual(v, form.retirementFrequency)}
                 onChange={v => {
                   prevSuggestedRef.current = null; // user took manual control
-                  set('retirementSpending', displayToAnnual(v, form.retirementFrequency));
+                  set('retirementSpending', v);
                 }}
                 placeholder={form.retirementFrequency === 'monthly' ? 'e.g. 10,000' : 'e.g. 120,000'}
               />
