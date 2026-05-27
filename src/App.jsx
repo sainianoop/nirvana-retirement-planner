@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import IntakeForm from './components/IntakeForm';
-import RiskCards from './components/RiskCards';
+import AssetOutlook from './components/AssetOutlook';
+import ActionPlan from './components/ActionPlan';
 import AdvisorBrief from './components/AdvisorBrief';
 
 const tabs = [
-  { label: 'Your Profile', path: '/' },
-  { label: 'Risk Analysis', path: '/risk' },
+  { label: 'Your Profile',  path: '/' },
+  { label: 'Asset Outlook', path: '/outlook' },
+  { label: 'Action Plan',   path: '/actions' },
   { label: 'Advisor Brief', path: '/advisor' },
 ];
 
@@ -43,8 +45,9 @@ export default function App() {
         <Nav />
         <main className="max-w-5xl mx-auto px-6 py-10">
           <Routes>
-            <Route path="/" element={<IntakeForm />} />
-            <Route path="/risk" element={<RiskCards />} />
+            <Route path="/"        element={<IntakeForm />} />
+            <Route path="/outlook" element={<AssetOutlook />} />
+            <Route path="/actions" element={<ActionPlan />} />
             <Route path="/advisor" element={<AdvisorBrief />} />
           </Routes>
         </main>

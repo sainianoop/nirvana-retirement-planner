@@ -68,6 +68,11 @@ const DEFAULT_STATE = {
   liquidityEventExpected: false,
   realEstateHeavy: false,
   additionalContext: '',
+
+  // Section 2 — Frequency toggles (Annual/Monthly display preference)
+  incomeFrequency: 'annual',      // householdIncome stored as annual
+  expenseFrequency: 'monthly',    // expense fields stored as monthly
+  retirementFrequency: 'annual',  // retirementSpending stored as annual
 };
 
 function loadFromStorage() {
@@ -98,12 +103,66 @@ function SectionHeader({ number, title }) {
   );
 }
 
-function SubHeader({ title }) {
+function SubHeader({ title, right }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155]">
-      {title}
-    </p>
+    <div className="flex items-center justify-between pb-2 border-b border-[#334155]">
+      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{title}</p>
+      {right}
+    </div>
   );
+}
+
+// Segmented Annual/Monthly pill toggle
+function FrequencyToggle({ value, onChange, options = ['Annual', 'Monthly'] }) {
+  return (
+    <div className="flex rounded-md overflow-hidden border border-[#334155]">
+      {options.map(opt => {
+        const v = opt.toLowerCase();
+        const active = value === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={
+              'px-2.5 py-1 text-xs font-medium transition-colors ' +
+              (active
+                ? 'bg-[#334155] text-white'
+                : 'bg-transparent text-slate-500 hover:text-slate-300')
+            }
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Frequency conversion helpers ──────────────────────────────────────────────
+// Income & retirement spending are stored as annual; expenses are stored as monthly.
+// These helpers convert between stored and displayed values when the user changes
+// the frequency toggle — the underlying stored value never changes on a toggle switch.
+
+function annualToDisplay(storedAnnual, freq) {
+  if (storedAnnual === '') return '';
+  const n = parseFloat(storedAnnual) || 0;
+  return freq === 'monthly' ? String(Math.round(n / 12)) : storedAnnual;
+}
+function displayToAnnual(inputVal, freq) {
+  if (inputVal === '') return '';
+  const n = parseFloat(inputVal) || 0;
+  return freq === 'monthly' ? String(Math.round(n * 12)) : inputVal;
+}
+function monthlyToDisplay(storedMonthly, freq) {
+  if (storedMonthly === '') return '';
+  const n = parseFloat(storedMonthly) || 0;
+  return freq === 'annual' ? String(Math.round(n * 12)) : storedMonthly;
+}
+function displayToMonthly(inputVal, freq) {
+  if (inputVal === '') return '';
+  const n = parseFloat(inputVal) || 0;
+  return freq === 'annual' ? String(Math.round(n / 12)) : inputVal;
 }
 
 function Toggle({ checked, onChange }) {
@@ -406,17 +465,26 @@ export default function IntakeForm() {
 
           {/* Current Income */}
           <div className="space-y-4">
-            <SubHeader title="Current Income" />
+            <SubHeader
+              title="Current Income"
+              right={
+                <FrequencyToggle
+                  value={form.incomeFrequency}
+                  onChange={v => set('incomeFrequency', v)}
+                />
+              }
+            />
 
             <div className="grid grid-cols-2 gap-5">
               <div>
                 <label className={labelClass}>
-                  Annual household income <span className="text-slate-500 font-normal">(pre-tax)</span>
+                  {form.incomeFrequency === 'monthly' ? 'Monthly' : 'Annual'} household income{' '}
+                  <span className="text-slate-500 font-normal">(pre-tax)</span>
                 </label>
                 <DollarInput
-                  value={form.householdIncome}
-                  onChange={v => set('householdIncome', v)}
-                  placeholder="e.g. 250,000"
+                  value={annualToDisplay(form.householdIncome, form.incomeFrequency)}
+                  onChange={v => set('householdIncome', displayToAnnual(v, form.incomeFrequency))}
+                  placeholder={form.incomeFrequency === 'monthly' ? 'e.g. 20,833' : 'e.g. 250,000'}
                 />
               </div>
               <div>
@@ -445,29 +513,39 @@ export default function IntakeForm() {
             )}
           </div>
 
-          {/* Monthly Expense Breakdown */}
+          {/* Expense Breakdown */}
           <div className="space-y-4">
-            <SubHeader title="Current Monthly Expenses" />
-
-            <div className="flex items-center gap-3">
-              <Toggle
-                checked={form.showExpenseBreakdown}
-                onChange={v => set('showExpenseBreakdown', v)}
-              />
-              <span className="text-slate-300 text-sm">
-                Help me break down my expenses <span className="text-slate-500">(optional)</span>
-              </span>
-            </div>
+            <SubHeader
+              title={`Current ${form.expenseFrequency === 'annual' ? 'Annual' : 'Monthly'} Expenses`}
+              right={
+                <div className="flex items-center gap-3">
+                  <Toggle
+                    checked={form.showExpenseBreakdown}
+                    onChange={v => set('showExpenseBreakdown', v)}
+                  />
+                  <span className="text-slate-400 text-xs">
+                    Break down my expenses <span className="text-slate-600">(optional)</span>
+                  </span>
+                </div>
+              }
+            />
 
             {form.showExpenseBreakdown && (
               <div className="pl-5 border-l-2 border-[#F59E0B]/30 space-y-3">
+                <div className="flex justify-end">
+                  <FrequencyToggle
+                    value={form.expenseFrequency}
+                    onChange={v => set('expenseFrequency', v)}
+                    options={['Monthly', 'Annual']}
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                   {EXPENSE_KEYS.map(key => (
                     <div key={key}>
                       <label className="text-xs text-slate-400 mb-1.5 block">{EXPENSE_LABELS[key]}</label>
                       <DollarInput
-                        value={form[key]}
-                        onChange={v => set(key, v)}
+                        value={monthlyToDisplay(form[key], form.expenseFrequency)}
+                        onChange={v => set(key, displayToMonthly(v, form.expenseFrequency))}
                         placeholder="0"
                       />
                     </div>
@@ -475,11 +553,23 @@ export default function IntakeForm() {
                 </div>
                 {totalMonthly > 0 && (
                   <div className="flex items-center gap-3 pt-2 border-t border-[#334155]">
-                    <span className="text-xs text-slate-500 uppercase tracking-wider">Total monthly</span>
-                    <span className="text-white font-semibold">{fmtCurrency(totalMonthly)}</span>
-                    <span className="text-slate-500 text-xs">/</span>
-                    <span className="text-xs text-slate-500 uppercase tracking-wider">Annual</span>
-                    <span className="text-white font-semibold">{fmtCurrency(annualExpenses)}</span>
+                    {form.expenseFrequency === 'monthly' ? (
+                      <>
+                        <span className="text-xs text-slate-500 uppercase tracking-wider">Total monthly</span>
+                        <span className="text-white font-semibold">{fmtCurrency(totalMonthly)}</span>
+                        <span className="text-slate-600 text-xs">·</span>
+                        <span className="text-xs text-slate-500 uppercase tracking-wider">Annual</span>
+                        <span className="text-white font-semibold">{fmtCurrency(annualExpenses)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs text-slate-500 uppercase tracking-wider">Total annual</span>
+                        <span className="text-white font-semibold">{fmtCurrency(annualExpenses)}</span>
+                        <span className="text-slate-600 text-xs">·</span>
+                        <span className="text-xs text-slate-500 uppercase tracking-wider">Monthly</span>
+                        <span className="text-white font-semibold">{fmtCurrency(totalMonthly)}</span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -488,19 +578,28 @@ export default function IntakeForm() {
 
           {/* Retirement Spending */}
           <div className="space-y-3">
-            <SubHeader title="Retirement Spending" />
+            <SubHeader
+              title="Retirement Spending"
+              right={
+                <FrequencyToggle
+                  value={form.retirementFrequency}
+                  onChange={v => set('retirementFrequency', v)}
+                />
+              }
+            />
 
             <div>
               <label className={labelClass}>
-                Expected annual spending in retirement <span className="text-slate-500 font-normal">(post-tax)</span>
+                Expected {form.retirementFrequency === 'monthly' ? 'monthly' : 'annual'} spending in retirement{' '}
+                <span className="text-slate-500 font-normal">(post-tax)</span>
               </label>
               <DollarInput
-                value={form.retirementSpending}
+                value={annualToDisplay(form.retirementSpending, form.retirementFrequency)}
                 onChange={v => {
                   prevSuggestedRef.current = null; // user took manual control
-                  set('retirementSpending', v);
+                  set('retirementSpending', displayToAnnual(v, form.retirementFrequency));
                 }}
-                placeholder="e.g. 120,000"
+                placeholder={form.retirementFrequency === 'monthly' ? 'e.g. 10,000' : 'e.g. 120,000'}
               />
               {expenseAutoFilled && (
                 <p className="text-xs text-slate-500 mt-1.5 italic">
