@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { generateActionPlan } from '../utils/claudeAdvisor';
 import { analyzeRisks } from '../utils/riskEngine';
 import { hashFormData } from '../utils/projections';
@@ -258,11 +259,16 @@ export default function ActionPlan() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <div className="text-4xl mb-4">🗓️</div>
-        <h2 className="text-2xl font-bold text-white mb-2">No profile data yet</h2>
-        <p className="text-slate-400 max-w-sm">
-          Fill in your details on the <strong className="text-white">Your Profile</strong> tab,
-          then come back here for a personalized action plan.
+        <h2 className="text-2xl font-bold text-white mb-2">Complete your profile first</h2>
+        <p className="text-slate-400 max-w-sm mb-6">
+          Complete your profile to generate your personalized time-bucketed action plan.
         </p>
+        <Link
+          to="/"
+          className="bg-[#F59E0B] hover:bg-[#D97706] text-[#0F172A] font-bold px-6 py-3 rounded-xl text-sm transition-colors"
+        >
+          Go to Your Profile →
+        </Link>
       </div>
     );
   }

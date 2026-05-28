@@ -14,8 +14,8 @@ const tabs = [
 function Nav() {
   return (
     <nav className="bg-[#1E293B] border-b border-[#334155]">
-      <div className="max-w-5xl mx-auto px-6 flex items-center gap-1 h-14">
-        <span className="text-[#F59E0B] font-bold text-lg tracking-wide mr-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 flex items-center gap-1 h-14 overflow-x-auto">
+        <span className="text-[#F59E0B] font-bold text-lg tracking-wide mr-4 sm:mr-6 flex-shrink-0">
           Nirvana
         </span>
         {tabs.map(({ label, path }) => (
@@ -24,7 +24,7 @@ function Nav() {
             to={path}
             end={path === '/'}
             className={({ isActive }) =>
-              `px-4 py-2 rounded text-sm font-medium transition-colors ` +
+              `px-3 sm:px-4 py-2 rounded text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ` +
               (isActive
                 ? 'bg-[#F59E0B] text-[#0F172A]'
                 : 'text-slate-300 hover:text-white hover:bg-[#334155]')

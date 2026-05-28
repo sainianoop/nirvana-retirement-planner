@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { projectAsset, hashFormData } from '../utils/projections';
 import { analyzeRisks } from '../utils/riskEngine';
 
@@ -254,9 +255,9 @@ function sortRows(rows, sortKey) {
     clone.sort((a, b) => b.balance - a.balance);
   } else if (sortKey === 'growth') {
     clone.sort((a, b) => {
-      const ga = a.balance > 0 ? b.proj.moderate / b.balance : 0;
-      const gb = a.balance > 0 ? a.proj.moderate / a.balance : 0;
-      return ga - gb;
+      const growthA = a.balance > 0 ? a.proj.moderate / a.balance : 0;
+      const growthB = b.balance > 0 ? b.proj.moderate / b.balance : 0;
+      return growthB - growthA; // descending
     });
   } else if (sortKey === 'tax') {
     clone.sort((a, b) => (TAX_ORDER[a.tax] ?? 9) - (TAX_ORDER[b.tax] ?? 9));
@@ -323,15 +324,14 @@ export default function AssetOutlook() {
 
   // Summary totals
   const totals = useMemo(() => {
-    const today      = rows.reduce((s, r) => s + r.balance,          0);
-    const moderate   = rows.reduce((s, r) => s + r.proj.moderate,    0);
-    const aggressive = rows.reduce((s, r) => s + r.proj.aggressive,  0);
-    const spending   = num(formData?.retirementSpending) || 0;
+    const today     = rows.reduce((s, r) => s + r.balance,       0);
+    const moderate  = rows.reduce((s, r) => s + r.proj.moderate, 0);
+    const spending  = num(formData?.retirementSpending) || 0;
     const coverageYrs = spending > 0 ? moderate / spending : null;
     const retireYear  = formData
       ? new Date().getFullYear() + Math.max(0, num(formData.retirementAgeUser) - num(formData.userAge))
       : null;
-    return { today, moderate, aggressive, coverageYrs, retireYear };
+    return { today, moderate, coverageYrs, retireYear };
   }, [rows, formData]);
 
   // ── Empty state ───────────────────────────────────────────
@@ -339,11 +339,16 @@ export default function AssetOutlook() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <div className="text-4xl mb-4">📊</div>
-        <h2 className="text-2xl font-bold text-white mb-2">No profile data yet</h2>
-        <p className="text-slate-400 max-w-sm">
-          Fill in your asset balances on the <strong className="text-white">Your Profile</strong> tab,
-          then come back here to see your outlook.
+        <h2 className="text-2xl font-bold text-white mb-2">Complete your profile first</h2>
+        <p className="text-slate-400 max-w-sm mb-6">
+          Complete your profile to see your asset projections and how they grow to retirement.
         </p>
+        <Link
+          to="/"
+          className="bg-[#F59E0B] hover:bg-[#D97706] text-[#0F172A] font-bold px-6 py-3 rounded-xl text-sm transition-colors"
+        >
+          Go to Your Profile →
+        </Link>
       </div>
     );
   }

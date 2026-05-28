@@ -69,11 +69,18 @@ const DEFAULT_STATE = {
   realEstateHeavy: false,
   additionalContext: '',
 
-  // Section 2 — Frequency toggles (Annual/Monthly display preference)
+  // Frequency toggles (Annual/Monthly display preference)
   incomeFrequency: 'annual',      // householdIncome stored as annual
   expenseFrequency: 'monthly',    // expense fields stored as monthly
   retirementFrequency: 'annual',  // retirementSpending stored as annual
 };
+
+// Keys used to detect Section 3 completion
+const ASSET_BALANCE_KEYS = [
+  'balance401k', 'balanceTraditionalIRA', 'balanceRothIRA', 'balanceHSA',
+  'balanceStocks', 'balanceBrokerage', 'balance529', 'equityPrimaryHome',
+  'equityRental', 'equityBusiness', 'cashMoneyMarket', 'crypto', 'pensionMonthlyIncome',
+];
 
 function loadFromStorage() {
   try {
@@ -85,6 +92,52 @@ function loadFromStorage() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Formatting helpers
+// ─────────────────────────────────────────────────────────────
+
+/** Format a digit-only string with thousands commas, locale-independent. */
+function formatCommas(raw) {
+  if (raw === '' || raw == null) return '';
+  const digits = String(raw).replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  return parseInt(digits, 10).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function fmtCurrency(n) {
+  return '$' + Math.round(n).toLocaleString();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Frequency conversion helpers
+// Income & retirement spending stored as annual integers.
+// Expense fields stored as monthly integers.
+// All helpers normalise to whole-number strings.
+// ─────────────────────────────────────────────────────────────
+function annualToDisplay(storedAnnual, freq) {
+  if (storedAnnual === '') return '';
+  const n = parseFloat(storedAnnual) || 0;
+  return freq === 'monthly' ? String(Math.round(n / 12)) : String(Math.round(n));
+}
+function displayToAnnual(inputVal, freq) {
+  if (inputVal === '') return '';
+  const n = parseFloat(inputVal) || 0;
+  return freq === 'monthly' ? String(Math.round(n * 12)) : String(Math.round(n));
+}
+function monthlyToDisplay(storedMonthly, freq) {
+  if (storedMonthly === '') return '';
+  const n = parseFloat(storedMonthly) || 0;
+  return freq === 'annual' ? String(Math.round(n * 12)) : String(Math.round(n));
+}
+function displayToMonthly(inputVal, freq) {
+  if (inputVal === '') return '';
+  const n = parseFloat(inputVal) || 0;
+  return freq === 'annual' ? String(Math.round(n / 12)) : String(Math.round(n));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shared style constants
+// ─────────────────────────────────────────────────────────────
 const inputClass =
   'w-full bg-[#0F172A] border border-[#334155] rounded-lg px-3 py-2.5 text-white ' +
   'placeholder-slate-500 focus:outline-none focus:border-[#F59E0B] focus:ring-1 ' +
@@ -92,6 +145,9 @@ const inputClass =
 
 const labelClass = 'block text-sm font-medium text-slate-300 mb-1.5';
 
+// ─────────────────────────────────────────────────────────────
+// Reusable components
+// ─────────────────────────────────────────────────────────────
 function SectionHeader({ number, title }) {
   return (
     <div className="flex items-center gap-3 mb-7">
@@ -112,7 +168,14 @@ function SubHeader({ title, right }) {
   );
 }
 
-// Segmented Annual/Monthly pill toggle
+function AssetGroupHeader({ title }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155]">
+      {title}
+    </p>
+  );
+}
+
 function FrequencyToggle({ value, onChange, options = ['Annual', 'Monthly'] }) {
   return (
     <div className="flex rounded-md overflow-hidden border border-[#334155]">
@@ -139,38 +202,6 @@ function FrequencyToggle({ value, onChange, options = ['Annual', 'Monthly'] }) {
   );
 }
 
-// ── Frequency conversion helpers ──────────────────────────────────────────────
-// Income & retirement spending are stored as annual; expenses are stored as monthly.
-// These helpers convert between stored and displayed values when the user changes
-// the frequency toggle — the underlying stored value never changes on a toggle switch.
-
-// Conversion helpers
-// Income & retirement spending are stored as annual integers.
-// Expense fields are stored as monthly integers.
-// All helpers normalise to a whole-number string so the input never
-// receives a raw stored value that could drift from the display value.
-
-function annualToDisplay(storedAnnual, freq) {
-  if (storedAnnual === '') return '';
-  const n = parseFloat(storedAnnual) || 0;
-  return freq === 'monthly' ? String(Math.round(n / 12)) : String(Math.round(n));
-}
-function displayToAnnual(inputVal, freq) {
-  if (inputVal === '') return '';
-  const n = parseFloat(inputVal) || 0;
-  return freq === 'monthly' ? String(Math.round(n * 12)) : String(Math.round(n));
-}
-function monthlyToDisplay(storedMonthly, freq) {
-  if (storedMonthly === '') return '';
-  const n = parseFloat(storedMonthly) || 0;
-  return freq === 'annual' ? String(Math.round(n * 12)) : String(Math.round(n));
-}
-function displayToMonthly(inputVal, freq) {
-  if (inputVal === '') return '';
-  const n = parseFloat(inputVal) || 0;
-  return freq === 'annual' ? String(Math.round(n / 12)) : String(Math.round(n));
-}
-
 function Toggle({ checked, onChange }) {
   return (
     <button
@@ -194,15 +225,22 @@ function Toggle({ checked, onChange }) {
   );
 }
 
+/**
+ * Plain dollar input for fields with no frequency conversion (asset balances).
+ * Shows commas when not focused; shows raw digits when focused for easy editing.
+ */
 function DollarInput({ value, onChange, placeholder = '0' }) {
+  const [isFocused, setIsFocused] = useState(false);
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm select-none">$</span>
       <input
         type="text"
         inputMode="numeric"
-        value={value}
+        value={isFocused ? value : formatCommas(value)}
         onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ''))}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         placeholder={placeholder}
         className={`${inputClass} pl-7`}
       />
@@ -211,31 +249,28 @@ function DollarInput({ value, onChange, placeholder = '0' }) {
 }
 
 /**
- * Like DollarInput, but designed for frequency-converted fields (income,
- * expenses, retirement spending).
+ * Dollar input for frequency-converted fields (income, expenses, retirement spending).
  *
- * Problem with converting on every keystroke:
- *   User types "3" in Annual mode → displayToMonthly("3","annual")
- *   = Math.round(3/12) = 0 → stored "0" → displayed "0" → field locked.
+ * Converts between storage frequency (always annual or monthly) and the user's
+ * chosen display frequency ONLY on blur, not on every keystroke. This avoids
+ * the "locked at 0" bug caused by lossy rounding of intermediate typed values.
  *
- * Fix: buffer the raw digits locally; run toStore/toDisplay only on blur.
- * During typing the parent's stored value never changes, so there is no
- * lossy round-trip. On blur we commit and normalise the display.
- *
- * The useEffect syncs the display when the frequency key or an external
- * stored-value change (auto-fill, frequency toggle) arrives.  storedValue
- * does NOT change while the user is typing (we only call onChange on blur),
- * so the effect never clobbers mid-type input.
+ * Comma formatting: shows commas when idle, strips them on focus so the user
+ * can edit raw digits freely.
  */
 function FreqField({ storedValue, freqKey, toDisplay, toStore, onChange, placeholder = '0' }) {
-  const [text, setText] = useState(() => toDisplay(storedValue));
-  // Keep a ref so the effect always calls the latest toDisplay without
-  // needing it as a dependency (it's a new function every render).
+  const [text, setText] = useState(() => formatCommas(toDisplay(storedValue)));
+  const isFocusedRef = useRef(false);
   const toDisplayRef = useRef(toDisplay);
   toDisplayRef.current = toDisplay;
 
+  // Sync display when frequency changes or stored value changes externally.
+  // storedValue does NOT change while the user is typing (we defer onChange
+  // to onBlur), so this effect never clobbers mid-type input.
   useEffect(() => {
-    setText(toDisplayRef.current(storedValue));
+    if (!isFocusedRef.current) {
+      setText(formatCommas(toDisplayRef.current(storedValue)));
+    }
   }, [freqKey, storedValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -247,10 +282,16 @@ function FreqField({ storedValue, freqKey, toDisplay, toStore, onChange, placeho
         value={text}
         placeholder={placeholder}
         onChange={e => setText(e.target.value.replace(/[^0-9]/g, ''))}
+        onFocus={() => {
+          isFocusedRef.current = true;
+          setText(t => t.replace(/,/g, '')); // strip commas for easy editing
+        }}
         onBlur={() => {
-          const stored = toStore(text);
+          isFocusedRef.current = false;
+          const raw    = text.replace(/,/g, '');
+          const stored = toStore(raw);
           onChange(stored);
-          setText(toDisplayRef.current(stored)); // normalise display
+          setText(formatCommas(toDisplayRef.current(stored)));
         }}
         className={`${inputClass} pl-7`}
       />
@@ -258,20 +299,20 @@ function FreqField({ storedValue, freqKey, toDisplay, toStore, onChange, placeho
   );
 }
 
+/**
+ * A label + optional sub-label + dollar input, rendered as a single div
+ * so it works as a single grid cell in both 1-column and 2-column layouts.
+ */
 function AssetRow({ label, subLabel, value, onChange, optional, placeholder }) {
   return (
-    <>
-      <div className="flex flex-col justify-center">
-        <div className="flex items-center text-sm text-slate-300">
-          {label}
-          {optional && <span className="ml-1.5 text-slate-500 text-xs">(optional)</span>}
-        </div>
-        {subLabel && (
-          <p className="text-xs text-slate-500 mt-0.5 leading-snug">{subLabel}</p>
-        )}
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-x-1.5 text-sm text-slate-300">
+        <span>{label}</span>
+        {optional && <span className="text-slate-500 text-xs">(optional)</span>}
       </div>
+      {subLabel && <p className="text-xs text-slate-500 leading-snug">{subLabel}</p>}
       <DollarInput value={value} onChange={onChange} placeholder={placeholder} />
-    </>
+    </div>
   );
 }
 
@@ -309,19 +350,18 @@ const EXPENSE_KEYS = [
 ];
 
 const EXPENSE_LABELS = {
-  expenseHousing: 'Housing (mortgage / rent)',
-  expenseChildcare: 'Childcare / education',
-  expenseHealthcare: 'Healthcare / insurance',
-  expenseFood: 'Food & dining',
-  expenseTransportation: 'Transportation',
-  expenseTravel: 'Travel & leisure',
-  expenseOther: 'Everything else',
+  expenseHousing:       'Housing (mortgage / rent)',
+  expenseChildcare:     'Childcare / education',
+  expenseHealthcare:    'Healthcare / insurance',
+  expenseFood:          'Food & dining',
+  expenseTransportation:'Transportation',
+  expenseTravel:        'Travel & leisure',
+  expenseOther:         'Everything else',
 };
 
-function fmtCurrency(n) {
-  return '$' + Math.round(n).toLocaleString();
-}
-
+// ─────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────
 export default function IntakeForm() {
   const [form, setForm] = useState(loadFromStorage);
   const navigate = useNavigate();
@@ -341,14 +381,14 @@ export default function IntakeForm() {
     });
   }, [form.numChildren]);
 
-  // Expense totals
+  // Expense totals (stored values are always monthly)
   const totalMonthly = EXPENSE_KEYS.reduce(
     (sum, k) => sum + (parseFloat(form[k]) || 0), 0
   );
-  const annualExpenses = totalMonthly * 12;
+  const annualExpenses     = totalMonthly * 12;
   const suggestedRetirement = Math.round(annualExpenses * 0.85);
 
-  // Auto-fill retirement spending from expense breakdown (only if field is empty or equals our prior auto-value)
+  // Auto-fill retirement spending at 85% of expenses when breakdown is used
   useEffect(() => {
     if (!form.showExpenseBreakdown || totalMonthly === 0) return;
     const currentVal = parseFloat(form.retirementSpending) || 0;
@@ -372,9 +412,8 @@ export default function IntakeForm() {
   }
 
   function handleSubmit() {
-    const userAge  = parseFloat(form.userAge) || 0;
+    const userAge   = parseFloat(form.userAge)  || 0;
     const retireAge = parseFloat(form.retirementAgeUser) || 0;
-    // Derived: retiring within ~18 months
     const retiringSoon = retireAge > 0 && userAge > 0 && (retireAge - userAge) <= 1.5;
 
     const dataToSave = { ...form, retiringWithin18Months: retiringSoon };
@@ -386,9 +425,18 @@ export default function IntakeForm() {
     navigate('/outlook');
   }
 
-  const numChildren = Number(form.numChildren);
+  // Progress indicator
+  const progress = [
+    { label: 'Household',         done: !!(form.userAge && form.retirementAgeUser) },
+    { label: 'Income & Spending', done: !!(form.householdIncome && form.retirementSpending) },
+    { label: 'Assets',            done: ASSET_BALANCE_KEYS.some(k => parseFloat(form[k]) > 0) },
+    { label: 'Additional Factors', done: true },
+  ];
+  const completedSections = progress.filter(p => p.done).length;
+
+  const numChildren          = Number(form.numChildren);
   const showPartnerRetirement = form.hasPartner && form.partnerAge !== '';
-  const expenseAutoFilled =
+  const expenseAutoFilled     =
     form.showExpenseBreakdown &&
     totalMonthly > 0 &&
     parseFloat(form.retirementSpending) === suggestedRetirement;
@@ -396,12 +444,51 @@ export default function IntakeForm() {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
 
+      {/* ── Hero ─────────────────────────────────────────────── */}
+      <div className="pt-2">
+        <h1 className="text-3xl font-bold text-white leading-tight mb-3">
+          Understand your retirement picture before your advisor does.
+        </h1>
+        <p className="text-slate-400 text-base leading-relaxed">
+          Answer a few questions about your financial situation. Nirvana projects your asset
+          growth, identifies risks specific to your household, and tells you exactly what to ask
+          your advisor.
+        </p>
+      </div>
+
+      {/* ── Progress indicator ───────────────────────────────── */}
+      <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          {completedSections} of 4 sections complete
+          {completedSections === 4 && (
+            <span className="ml-2 text-[#F59E0B] font-medium">— ready to analyze</span>
+          )}
+        </p>
+        <div className="flex gap-1.5">
+          {progress.map(step => (
+            <div key={step.label} className="flex-1">
+              <div
+                title={step.label}
+                className={`h-1.5 rounded-full transition-colors duration-300 ${
+                  step.done ? 'bg-[#F59E0B]' : 'bg-[#334155]'
+                }`}
+              />
+              <p className={`text-xs mt-1 text-center hidden sm:block truncate ${
+                step.done ? 'text-slate-400' : 'text-slate-600'
+              }`}>
+                {step.done ? '✓ ' : ''}{step.label}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── SECTION 1: Household ─────────────────────────────── */}
-      <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
+      <section className="bg-[#1E293B] rounded-2xl p-6 sm:p-8 border border-[#334155]">
         <SectionHeader number="1" title="Household" />
 
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className={labelClass}>Your age</label>
               <input
@@ -430,7 +517,7 @@ export default function IntakeForm() {
           </div>
 
           {form.hasPartner && (
-            <div className="grid grid-cols-2 gap-5 pl-5 border-l-2 border-[#F59E0B]/30">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pl-5 border-l-2 border-[#F59E0B]/30">
               <div>
                 <label className={labelClass}>Partner's age</label>
                 <input
@@ -466,7 +553,7 @@ export default function IntakeForm() {
 
           <div>
             <label className={labelClass}>Number of children</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {[0, 1, 2, 3, 4, 5, 6].map(n => (
                 <button
                   key={n} type="button"
@@ -512,7 +599,7 @@ export default function IntakeForm() {
       </section>
 
       {/* ── SECTION 2: Income & Spending ─────────────────────── */}
-      <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
+      <section className="bg-[#1E293B] rounded-2xl p-6 sm:p-8 border border-[#334155]">
         <SectionHeader number="2" title="Income & Spending" />
 
         <div className="space-y-6">
@@ -529,7 +616,7 @@ export default function IntakeForm() {
               }
             />
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
                 <label className={labelClass}>
                   {form.incomeFrequency === 'monthly' ? 'Monthly' : 'Annual'} household income{' '}
@@ -596,7 +683,7 @@ export default function IntakeForm() {
                     options={['Monthly', 'Annual']}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                   {EXPENSE_KEYS.map(key => (
                     <div key={key}>
                       <label className="text-xs text-slate-400 mb-1.5 block">{EXPENSE_LABELS[key]}</label>
@@ -612,7 +699,7 @@ export default function IntakeForm() {
                   ))}
                 </div>
                 {totalMonthly > 0 && (
-                  <div className="flex items-center gap-3 pt-2 border-t border-[#334155]">
+                  <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[#334155]">
                     {form.expenseFrequency === 'monthly' ? (
                       <>
                         <span className="text-xs text-slate-500 uppercase tracking-wider">Total monthly</span>
@@ -675,7 +762,7 @@ export default function IntakeForm() {
           {/* Healthcare */}
           <div className="space-y-3">
             <SubHeader title="Healthcare" />
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
                 <label className={labelClass}>Coverage today</label>
                 <select
@@ -710,70 +797,78 @@ export default function IntakeForm() {
       </section>
 
       {/* ── SECTION 3: Assets ────────────────────────────────── */}
-      <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
+      <section className="bg-[#1E293B] rounded-2xl p-6 sm:p-8 border border-[#334155]">
         <SectionHeader number="3" title="Assets by Account Type" />
 
-        <div className="grid grid-cols-[1fr_1fr] gap-x-10 gap-y-4 items-center">
+        <div className="space-y-7">
 
           {/* Retirement Accounts */}
-          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155]">
-            Retirement Accounts
-          </p>
-          <AssetRow label="401(k) / 403(b)" value={form.balance401k} onChange={v => set('balance401k', v)} placeholder="e.g. 150,000" />
-          <AssetRow label="Traditional IRA" value={form.balanceTraditionalIRA} onChange={v => set('balanceTraditionalIRA', v)} placeholder="e.g. 80,000" />
-          <AssetRow label="Roth IRA / Roth 401(k)" value={form.balanceRothIRA} onChange={v => set('balanceRothIRA', v)} placeholder="e.g. 60,000" />
-          <AssetRow label="HSA" value={form.balanceHSA} onChange={v => set('balanceHSA', v)} />
+          <div>
+            <AssetGroupHeader title="Retirement Accounts" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <AssetRow label="401(k) / 403(b)" value={form.balance401k} onChange={v => set('balance401k', v)} placeholder="e.g. 150,000" />
+              <AssetRow label="Traditional IRA" value={form.balanceTraditionalIRA} onChange={v => set('balanceTraditionalIRA', v)} placeholder="e.g. 80,000" />
+              <AssetRow label="Roth IRA / Roth 401(k)" value={form.balanceRothIRA} onChange={v => set('balanceRothIRA', v)} placeholder="e.g. 60,000" />
+              <AssetRow label="HSA" value={form.balanceHSA} onChange={v => set('balanceHSA', v)} />
+            </div>
+          </div>
 
           {/* Brokerage & Investments */}
-          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
-            Brokerage &amp; Investments
-          </p>
-          <AssetRow
-            label="Stocks / Individual Equities"
-            subLabel="Individual stock positions (not held in a brokerage account)"
-            value={form.balanceStocks}
-            onChange={v => set('balanceStocks', v)}
-          />
-          <AssetRow
-            label="Taxable Brokerage"
-            subLabel="Mutual funds, ETFs, index funds"
-            value={form.balanceBrokerage}
-            onChange={v => set('balanceBrokerage', v)}
-          />
-          <AssetRow label="Crypto" value={form.crypto} onChange={v => set('crypto', v)} optional />
+          <div>
+            <AssetGroupHeader title="Brokerage & Investments" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <AssetRow
+                label="Stocks / Individual Equities"
+                subLabel="Individual stock positions (not held in a brokerage account)"
+                value={form.balanceStocks}
+                onChange={v => set('balanceStocks', v)}
+              />
+              <AssetRow
+                label="Taxable Brokerage"
+                subLabel="Mutual funds, ETFs, index funds"
+                value={form.balanceBrokerage}
+                onChange={v => set('balanceBrokerage', v)}
+              />
+              <AssetRow label="Crypto" value={form.crypto} onChange={v => set('crypto', v)} optional />
+            </div>
+          </div>
 
           {/* Real Estate */}
-          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
-            Real Estate
-          </p>
-          <AssetRow label="Primary Home Equity" value={form.equityPrimaryHome} onChange={v => set('equityPrimaryHome', v)} />
-          <AssetRow label="Rental Property Equity" value={form.equityRental} onChange={v => set('equityRental', v)} />
+          <div>
+            <AssetGroupHeader title="Real Estate" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <AssetRow label="Primary Home Equity" value={form.equityPrimaryHome} onChange={v => set('equityPrimaryHome', v)} />
+              <AssetRow label="Rental Property Equity" value={form.equityRental} onChange={v => set('equityRental', v)} />
+            </div>
+          </div>
 
           {/* Other Assets */}
-          <p className="col-span-2 text-xs font-semibold uppercase tracking-widest text-slate-400 pb-2 border-b border-[#334155] mt-3">
-            Other Assets
-          </p>
-          <AssetRow label="529 Total Balance" value={form.balance529} onChange={v => set('balance529', v)} />
-          <AssetRow label="Business / Private Equity" value={form.equityBusiness} onChange={v => set('equityBusiness', v)} />
-          <AssetRow label="Cash / Money Market" value={form.cashMoneyMarket} onChange={v => set('cashMoneyMarket', v)} />
-          <AssetRow
-            label="Pension / Annuity"
-            subLabel="Monthly income — not a lump sum"
-            value={form.pensionMonthlyIncome}
-            onChange={v => set('pensionMonthlyIncome', v)}
-          />
+          <div>
+            <AssetGroupHeader title="Other Assets" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <AssetRow label="529 Total Balance" value={form.balance529} onChange={v => set('balance529', v)} />
+              <AssetRow label="Business / Private Equity" value={form.equityBusiness} onChange={v => set('equityBusiness', v)} />
+              <AssetRow label="Cash / Money Market" value={form.cashMoneyMarket} onChange={v => set('cashMoneyMarket', v)} />
+              <AssetRow
+                label="Pension / Annuity"
+                subLabel="Monthly income — not a lump sum"
+                value={form.pensionMonthlyIncome}
+                onChange={v => set('pensionMonthlyIncome', v)}
+              />
+            </div>
+          </div>
 
         </div>
       </section>
 
       {/* ── SECTION 4: Additional Factors ────────────────────── */}
-      <section className="bg-[#1E293B] rounded-2xl p-8 border border-[#334155]">
+      <section className="bg-[#1E293B] rounded-2xl p-6 sm:p-8 border border-[#334155]">
         <SectionHeader number="4" title="Additional Factors" />
         <p className="text-slate-400 text-sm mb-6 -mt-3">
           These help us identify risks specific to your situation.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {ADDITIONAL_FACTORS.map(({ key, title, desc }) => {
             const selected = form[key];
             return (
