@@ -2,15 +2,26 @@
 // Load .env.local in development; no-op when file is absent (production)
 require('dotenv').config({ path: '.env.local' });
 
+const path       = require('path');
 const express    = require('express');
 const cors       = require('cors');
 const rateLimit  = require('express-rate-limit');
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const app = express();
 app.use(express.json());
 
+// ─── Static frontend (production only) ───────────────────────────────────────
+// In production the Express server owns both the API and the React app.
+// In development, Vite's dev server handles the frontend independently.
+if (isProd) {
+  const distDir = path.join(__dirname, 'dist');
+  app.use(express.static(distDir));
+}
+
 // ─── CORS ────────────────────────────────────────────────────────────────────
-// Allow localhost (dev) + the deployed Vercel frontend (set FRONTEND_URL in env)
+// In production the frontend is same-origin, so CORS is only needed in dev.
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:5175',
@@ -19,7 +30,7 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({
   origin(origin, callback) {
-    // Allow requests with no origin (curl, Postman, same-origin SSR)
+    // In production, /api requests are same-origin — no origin header present
     if (!origin || ALLOWED_ORIGINS.includes(origin)) {
       callback(null, true);
     } else {
@@ -64,8 +75,17 @@ app.post('/api/generate', limiter, async (req, res) => {
   }
 });
 
+// ─── SPA fallback (production only) ──────────────────────────────────────────
+// Any non-/api route returns index.html so client-side routing works correctly.
+if (isProd) {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`[proxy] Listening on http://localhost:${PORT}`);
+  console.log(`[server] Running in ${isProd ? 'production' : 'development'} mode`);
+  console.log(`[server] Listening on http://localhost:${PORT}`);
 });
