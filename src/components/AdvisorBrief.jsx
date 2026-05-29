@@ -768,6 +768,26 @@ export default function AdvisorBrief() {
         </p>
       </div>
 
+      {/* ── Next Step CTA (screen only, hidden in print) ────── */}
+      <div
+        data-no-print
+        className="border-t-2 border-[#F59E0B]/30 bg-[#070C15] rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center"
+      >
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="w-full sm:w-auto bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-[#0F172A] font-bold px-10 py-4 rounded-xl text-base transition-colors shadow-lg shadow-amber-900/30"
+        >
+          Print / Save as PDF
+        </button>
+        <Link
+          to="/"
+          className="text-slate-400 hover:text-amber-400 text-sm transition-colors"
+        >
+          ← Update my profile
+        </Link>
+      </div>
+
     </div>
   );
 }

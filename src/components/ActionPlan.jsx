@@ -338,6 +338,20 @@ export default function ActionPlan() {
           AI-generated — not financial advice. Consult a licensed financial advisor before acting.
         </p>
       )}
+
+      {/* ── Next Step CTA ────────────────────────────────────── */}
+      {!loading && plan && !isError && (
+        <div className="border-t-2 border-[#F59E0B]/30 bg-[#070C15] rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center">
+          <h3 className="text-white font-bold text-lg">Take this to your financial advisor</h3>
+          <Link
+            to="/advisor"
+            className="w-full sm:w-auto bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-[#0F172A] font-bold px-10 py-4 rounded-xl text-base transition-colors shadow-lg shadow-amber-900/30 inline-block"
+          >
+            Generate Advisor Brief →
+          </Link>
+          <p className="text-slate-500 text-sm">A printable one-page summary with your portfolio, risks, and questions to ask</p>
+        </div>
+      )}
     </div>
   );
 }

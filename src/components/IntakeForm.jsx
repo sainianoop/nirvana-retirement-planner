@@ -1178,15 +1178,16 @@ export default function IntakeForm() {
         </div>
       </section>
 
-      {/* ── CTA ──────────────────────────────────────────────── */}
-      <div className="flex justify-end pb-10">
+      {/* ── Next Step CTA ────────────────────────────────────── */}
+      <div className="border-t-2 border-[#F59E0B]/30 bg-[#070C15] rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center pb-10">
         <button
           type="button"
           onClick={handleSubmit}
-          className="bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-[#0F172A] font-bold px-8 py-4 rounded-xl text-base transition-colors shadow-lg shadow-amber-900/30"
+          className="w-full sm:w-auto bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-[#0F172A] font-bold px-10 py-4 rounded-xl text-base transition-colors shadow-lg shadow-amber-900/30"
         >
-          Analyze My Retirement Readiness →
+          View My Asset Outlook →
         </button>
+        <p className="text-slate-500 text-sm">Saves your profile and shows your projected asset growth to retirement</p>
       </div>
     </div>
   );

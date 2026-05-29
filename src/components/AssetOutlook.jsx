@@ -735,6 +735,18 @@ export default function AssetOutlook() {
         Projections are illustrative only and assume a constant annual return with no withdrawals.
         They are not a guarantee of future performance. Consult a licensed financial advisor.
       </p>
+
+      {/* ── Next Step CTA ────────────────────────────────────── */}
+      <div className="border-t-2 border-[#F59E0B]/30 bg-[#070C15] rounded-2xl px-6 py-8 flex flex-col items-center gap-3 text-center">
+        <h3 className="text-white font-bold text-lg">Ready to see what to do next?</h3>
+        <Link
+          to="/actions"
+          className="w-full sm:w-auto bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-[#0F172A] font-bold px-10 py-4 rounded-xl text-base transition-colors shadow-lg shadow-amber-900/30 inline-block"
+        >
+          Generate My Action Plan →
+        </Link>
+        <p className="text-slate-500 text-sm">AI-powered recommendations personalized to your numbers</p>
+      </div>
     </div>
   );
 }
