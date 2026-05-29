@@ -108,9 +108,6 @@ function buildDataContext(riskId, formData) {
 }
 
 export async function generateRiskNarrative(risk, formData) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY is not configured');
-
   const dataContext = buildDataContext(risk.id, formData);
 
   const prompt = `You are writing personalized copy for a retirement planning tool. A financial planner's client is reviewing their retirement readiness.
@@ -126,14 +123,9 @@ Do NOT give specific investment advice. Do NOT recommend specific products, fund
 
 Output only the explanation. No headers, no bullets, no preamble, no sign-off.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('/api/generate', {
     method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-      'content-type': 'application/json',
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 300,
@@ -171,8 +163,6 @@ const ASSET_LABELS = {
 };
 
 export async function generateActionPlan(formData, risks) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY is not configured');
 
   const userAge    = num(formData.userAge);
   const partnerAge = num(formData.partnerAge);
@@ -214,14 +204,9 @@ Return JSON only in this format:
   "this_year": ["action 1", "action 2", ...]
 }`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('/api/generate', {
     method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-      'content-type': 'application/json',
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 1200,
