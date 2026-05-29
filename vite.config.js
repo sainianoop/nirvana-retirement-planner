@@ -8,7 +8,8 @@ export default defineConfig({
     // Forward /api/* to the Express proxy so the browser never talks
     // directly to Anthropic and the API key stays server-side.
     proxy: {
-      '/api': 'http://localhost:3001',
+      // vercel dev runs on port 3000 and handles /api/* via serverless functions
+      '/api': 'http://localhost:3000',
     },
   },
 })
