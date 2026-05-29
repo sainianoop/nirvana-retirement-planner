@@ -1,6 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { projectAsset, hashFormData } from '../utils/projections';
+import {
+  projectAsset,
+  hashFormData,
+  calculateSuccessProbability,
+  calculateShortfallYear,
+} from '../utils/projections';
 import { analyzeRisks } from '../utils/riskEngine';
 
 // ─────────────────────────────────────────────────────────────
@@ -302,11 +307,27 @@ function SortButton({ label, active, onClick }) {
   );
 }
 
-function StatCard({ label, value, sub }) {
+function InfoTooltip({ text }) {
+  return (
+    <span className="relative group inline-flex items-center ml-1">
+      <span className="text-slate-600 cursor-help border border-slate-700 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center text-[10px] font-bold select-none leading-none">
+        ?
+      </span>
+      <span className="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 text-xs bg-[#0F172A] border border-[#334155] text-slate-300 rounded-lg px-3 py-2 shadow-xl z-10 pointer-events-none leading-relaxed normal-case tracking-normal font-normal">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function StatCard({ label, value, sub, tooltip, valueClassName }) {
   return (
     <div className="bg-[#1E293B] rounded-xl p-4 border border-[#334155]">
-      <p className="text-xs text-slate-400 mb-1">{label}</p>
-      <p className="text-xl font-bold text-white">{value}</p>
+      <div className="flex items-center mb-1">
+        <p className="text-xs text-slate-400">{label}</p>
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </div>
+      <p className={`text-xl font-bold ${valueClassName ?? 'text-white'}`}>{value}</p>
       {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
     </div>
   );
@@ -332,16 +353,16 @@ export default function AssetOutlook() {
 
   const sorted = useMemo(() => sortRows(rows, sortKey), [rows, sortKey]);
 
-  // Summary totals
+  // Summary totals + derived metrics
   const totals = useMemo(() => {
-    const today     = rows.reduce((s, r) => s + r.balance,       0);
-    const moderate  = rows.reduce((s, r) => s + r.proj.moderate, 0);
-    const spending  = num(formData?.retirementSpending) || 0;
+    const today    = rows.reduce((s, r) => s + r.balance,       0);
+    const moderate = rows.reduce((s, r) => s + r.proj.moderate, 0);
+    const spending = num(formData?.retirementSpending) || 0;
     const coverageYrs = spending > 0 ? moderate / spending : null;
-    const retireYear  = formData
-      ? new Date().getFullYear() + Math.max(0, num(formData.retirementAgeUser) - num(formData.userAge))
-      : null;
-    return { today, moderate, coverageYrs, retireYear };
+    const projections = { today, moderate };
+    const successProb = formData ? calculateSuccessProbability(formData, projections) : null;
+    const shortfall   = formData ? calculateShortfallYear(formData, projections)   : null;
+    return { today, moderate, coverageYrs, successProb, shortfall };
   }, [rows, formData]);
 
   // ── Empty state ───────────────────────────────────────────
@@ -391,28 +412,71 @@ export default function AssetOutlook() {
       </div>
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Today"
-          value={fmt(totals.today)}
-          sub="All entered assets"
-        />
-        <StatCard
-          label="Projected (Moderate)"
-          value={fmt(totals.moderate)}
-          sub={`+${((totals.moderate / totals.today - 1) * 100).toFixed(0)}% at 7%/yr`}
-        />
-        <StatCard
-          label="Retirement Year"
-          value={totals.retireYear ? String(totals.retireYear) : '—'}
-          sub={`Age ${retireAge}`}
-        />
-        <StatCard
-          label="Coverage"
-          value={totals.coverageYrs ? `~${totals.coverageYrs.toFixed(1)} yrs` : '—'}
-          sub="Moderate ÷ annual spending"
-        />
-      </div>
+      {(() => {
+        // Probability of success — color coding
+        const prob = totals.successProb;
+        const probColor = prob === null ? 'text-slate-400'
+          : prob >= 80 ? 'text-green-400'
+          : prob >= 60 ? 'text-amber-400'
+          : 'text-red-400';
+
+        // Shortfall year — derive display text + color
+        const sf = totals.shortfall;
+        let shortfallText  = '—';
+        let shortfallColor = 'text-slate-400';
+        if (sf) {
+          if (sf.moderate !== null) {
+            shortfallText  = `Shortfall ~${sf.moderate}`;
+            shortfallColor = 'text-red-400';
+          } else if (sf.belowAverage !== null) {
+            shortfallText  = `Shortfall ~${sf.belowAverage}`;
+            shortfallColor = 'text-amber-400';
+          } else {
+            shortfallText  = 'Funded to 90+';
+            shortfallColor = 'text-green-400';
+          }
+        }
+
+        return (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <StatCard
+                label="Total Today"
+                value={fmt(totals.today)}
+                sub="All entered assets"
+              />
+              <StatCard
+                label="Projected (Moderate)"
+                value={fmt(totals.moderate)}
+                sub={`+${((totals.moderate / totals.today - 1) * 100).toFixed(0)}% at 7%/yr`}
+              />
+              <StatCard
+                label="Probability of Success"
+                value={prob !== null ? `${prob}%` : '—'}
+                sub={prob !== null ? (prob >= 80 ? 'Strong outlook' : prob >= 60 ? 'Moderate risk' : 'Needs attention') : undefined}
+                valueClassName={probColor}
+                tooltip="Estimated likelihood your portfolio covers retirement expenses through age 90, based on your inputs"
+              />
+              <StatCard
+                label="Shortfall Year"
+                value={shortfallText}
+                sub={sf?.moderate === null && sf?.belowAverage === null ? 'Through 40-yr window' : 'Moderate scenario'}
+                valueClassName={shortfallColor}
+                tooltip="The year your portfolio may be depleted based on your current savings rate and spending plan"
+              />
+              <StatCard
+                label="Coverage"
+                value={totals.coverageYrs ? `~${totals.coverageYrs.toFixed(1)} yrs` : '—'}
+                sub="Moderate ÷ annual spending"
+              />
+            </div>
+            <p className="text-xs text-slate-600 text-center -mt-2">
+              Probability of success and shortfall projections are estimates based on simplified modeling.
+              They are not a guarantee of future results. Consult a licensed financial advisor for a comprehensive analysis.
+            </p>
+          </>
+        );
+      })()}
 
       {/* Sort controls */}
       <div className="flex items-center gap-2">
