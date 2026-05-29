@@ -427,10 +427,22 @@ export default function IntakeForm() {
 
   // Progress indicator
   const progress = [
-    { label: 'Household',         done: !!(form.userAge && form.retirementAgeUser) },
-    { label: 'Income & Spending', done: !!(form.householdIncome && form.retirementSpending) },
-    { label: 'Assets',            done: ASSET_BALANCE_KEYS.some(k => parseFloat(form[k]) > 0) },
-    { label: 'Additional Factors', done: true },
+    {
+      label: 'Household',
+      done: !!(form.userAge && form.retirementAgeUser && form.state),
+    },
+    {
+      label: 'Income & Spending',
+      done: !!(form.householdIncome && form.retirementSpending),
+    },
+    {
+      label: 'Assets',
+      done: ASSET_BALANCE_KEYS.filter(k => parseFloat(form[k]) > 0).length >= 3,
+    },
+    {
+      label: 'Additional Factors',
+      done: ADDITIONAL_FACTORS.some(f => form[f.key]) || form.additionalContext.trim().length > 0,
+    },
   ];
   const completedSections = progress.filter(p => p.done).length;
 
