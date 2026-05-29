@@ -182,6 +182,41 @@ export async function generateActionPlan(formData, risks) {
 
   const additionalContext = (formData.additionalContext || '').trim();
 
+  // Build Social Security context for the prompt
+  const SS_MULTS = {
+    '62': 0.700, '63': 0.750, '64': 0.800, '65': 0.867,
+    '66': 0.933, '67': 1.000, '68': 1.080, '69': 1.160, '70': 1.240,
+  };
+  const ssConfigured     = formData.ssConfigured === true;
+  const ssAnnual         = num(formData.ssAnnualTotal);
+  const ssMonthlyBrief   = Math.round(ssAnnual / 12);
+  const ssClaimAge       = String(formData.ssClaimingAge || '67');
+  const partnerSsAnnual  = num(formData.partnerSsAnnualTotal);
+  const partnerClaimAge  = String(formData.partnerSsClaimingAge || '67');
+  const pensionAnnual    = num(formData.pensionMonthlyIncome) * 12;
+  const totalGuaranteed  = ssAnnual + partnerSsAnnual + pensionAnnual;
+  const spending         = num(formData.retirementSpending);
+  const guaranteedCovPct = spending > 0 ? Math.round((totalGuaranteed / spending) * 100) : 0;
+
+  let ssContext = '';
+  if (ssConfigured && ssAnnual > 0) {
+    const claimMult = SS_MULTS[ssClaimAge] ?? 1.0;
+    const claimNote =
+      Number(ssClaimAge) < 67
+        ? `They are claiming early at ${ssClaimAge}, reducing lifetime benefits by ${Math.round((1 - claimMult) * 100)}%.`
+        : Number(ssClaimAge) > 67
+        ? `They are delaying to ${ssClaimAge} to maximize benefits (+${Math.round((claimMult - 1) * 100)}%).`
+        : `Claiming at full retirement age (67).`;
+    ssContext = `\nSocial Security: user expects $${ssMonthlyBrief.toLocaleString()}/month claiming at age ${ssClaimAge}. ${claimNote}`;
+    if (partnerSsAnnual > 0) {
+      ssContext += `\nPartner SS: $${Math.round(partnerSsAnnual / 12).toLocaleString()}/month claiming at age ${partnerClaimAge}.`;
+    }
+    if (pensionAnnual > 0) {
+      ssContext += `\nPension income: $${Math.round(pensionAnnual / 12).toLocaleString()}/month from retirement.`;
+    }
+    ssContext += `\nTotal guaranteed income covers ${guaranteedCovPct}% of retirement spending. Factor SS timing strategy into the action plan recommendations.`;
+  }
+
   // Build children context for the prompt
   const children = Array.isArray(formData.children) ? formData.children : [];
   const COLLEGE_COST = 35_000;
@@ -214,6 +249,7 @@ ${assetLines}
 Triggered risk flags:
 ${triggeredRisks}
 ${additionalContext ? `\nAdditional context from client: "${additionalContext}"` : ''}
+${ssContext}
 ${childrenContext}
 
 Generate a concrete, personalized retirement action plan in three time buckets: Next 30 Days, Next 90 Days, This Year. Each bucket should have 3-5 specific action items. Each action item should be one sentence, specific and named (e.g. 'Increase 401k contribution to IRS maximum of $23,000' not 'Save more for retirement'). Reference the user's actual numbers where relevant. Do not give investment advice — recommend actions and advisor conversations.

@@ -58,7 +58,7 @@ const INVESTABLE_DEFS = [
   { key: 'cashMoneyMarket',       label: 'Cash / Money Market',          tax: 'Taxable',      action: 'Keep 6–12 months of expenses in cash; move excess into higher-yield vehicles.' },
   { key: 'equityBusiness',        label: 'Business / Private Equity',    tax: 'Taxable',      action: 'Build a succession or exit plan — this value is illiquid until a sale is completed.' },
   { key: 'balance529',            label: '529 Plan (Education Assets)',   tax: 'Education',    action: 'Review the investment glide path and confirm beneficiary designation.' },
-  { key: 'pensionMonthlyIncome',  label: 'Pension / Annuity',            tax: 'Tax-Deferred', action: 'Confirm survivor benefit options and understand COLA provisions.', isIncome: true },
+  // pensionMonthlyIncome omitted — shown in the Guaranteed Income section of the snapshot
 ];
 
 const ILLIQUID_DEFS = [
@@ -127,6 +127,21 @@ const RISK_CONTENT = {
     question: 'What strategies should I have in place before my liquidity event to minimize the tax impact in that year?',
   },
 };
+
+// ─────────────────────────────────────────────────────────────
+// Social Security helpers
+// ─────────────────────────────────────────────────────────────
+const SS_CLAIMING_MULTIPLIERS = {
+  '62': 0.700, '63': 0.750, '64': 0.800, '65': 0.867,
+  '66': 0.933, '67': 1.000, '68': 1.080, '69': 1.160, '70': 1.240,
+};
+
+function ssStrategy(claimAge) {
+  const a = Number(claimAge);
+  if (a < 67)  return 'early claim';
+  if (a === 67) return 'full retirement age';
+  return 'delayed claim';
+}
 
 // ─────────────────────────────────────────────────────────────
 // Print CSS
@@ -471,6 +486,45 @@ export default function AdvisorBrief() {
               value={netWorthBalance > 0 ? fmtCompact(netWorthBalance) : null}
             />
             <SnapRow label="Healthcare post-retirement" value={healthcareLabel} />
+
+            {/* ── Guaranteed Income ─────────────────────────── */}
+            {(() => {
+              const ssAnnual        = num(formData.ssAnnualTotal);
+              const partnerSsAnnual = num(formData.partnerSsAnnualTotal);
+              const pensionAnnual   = num(formData.pensionMonthlyIncome) * 12;
+              const totalGuaranteed = ssAnnual + partnerSsAnnual + pensionAnnual;
+
+              if (!formData.ssConfigured && pensionAnnual === 0) return null;
+
+              return (
+                <>
+                  {ssAnnual > 0 && (
+                    <SnapRow
+                      label="Your Social Security"
+                      value={`$${Math.round(ssAnnual / 12).toLocaleString()}/mo at age ${formData.ssClaimingAge || 67} — ${ssStrategy(formData.ssClaimingAge)}`}
+                    />
+                  )}
+                  {partnerSsAnnual > 0 && formData.hasPartner && (
+                    <SnapRow
+                      label="Partner Social Security"
+                      value={`$${Math.round(partnerSsAnnual / 12).toLocaleString()}/mo at age ${formData.partnerSsClaimingAge || 67} — ${ssStrategy(formData.partnerSsClaimingAge)}`}
+                    />
+                  )}
+                  {pensionAnnual > 0 && (
+                    <SnapRow
+                      label="Pension / Annuity"
+                      value={`$${Math.round(pensionAnnual / 12).toLocaleString()}/mo`}
+                    />
+                  )}
+                  {totalGuaranteed > 0 && (
+                    <SnapRow
+                      label="Total guaranteed income"
+                      value={`$${Math.round(totalGuaranteed).toLocaleString()}/yr ($${Math.round(totalGuaranteed / 12).toLocaleString()}/mo)`}
+                    />
+                  )}
+                </>
+              );
+            })()}
           </tbody>
         </table>
       </SectionBlock>
@@ -571,50 +625,84 @@ export default function AdvisorBrief() {
 
       {/* ── Section 3: Key Questions ───────────────────────── */}
       <SectionBlock number="3" title="Key Questions for Your Advisor">
-        {triggeredRisks.length === 0 ? (
-          <p className="text-slate-500 text-sm italic">
-            No significant risk flags identified based on the information provided.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {triggeredRisks.map(risk => {
-              const content = RISK_CONTENT[risk.id];
-              if (!content) return null;
+        {(() => {
+          // SS early-claim card — rendered before risk-engine cards
+          const ssClaimAge   = num(formData.ssClaimingAge || '67');
+          const showSsCard   = formData.ssConfigured && ssClaimAge < 67 && num(formData.ssAnnualTotal) > 0;
+          const ssReductionPct = showSsCard
+            ? Math.round((1 - (SS_CLAIMING_MULTIPLIERS[String(ssClaimAge)] ?? 1)) * 100)
+            : 0;
 
-              // Build dynamic question for college-retirement-overlap
-              const question = risk.id === 'college-retirement-overlap'
-                ? `How does my retirement timing affect my children's financial aid eligibility, and which of my accounts count against FAFSA? Should I prioritize 529 contributions or retirement accounts in the next ${yearsOut} years?`
-                : content.question;
+          const hasAnything = triggeredRisks.length > 0 || showSsCard;
 
-              const borderClass =
-                risk.severity === 'high'   ? 'risk-card-high border-red-500'   :
-                risk.severity === 'medium' ? 'risk-card-medium border-amber-500' :
-                                             'risk-card-low border-slate-600';
-              const badgeClass =
-                risk.severity === 'high'   ? 'bg-red-900/40 text-red-300 border border-red-700/50'       :
-                risk.severity === 'medium' ? 'bg-amber-900/40 text-amber-300 border border-amber-700/50' :
-                                             'bg-slate-700/50 text-slate-400 border border-slate-600';
-              return (
-                <div
-                  key={risk.id}
-                  className={`risk-card pl-4 border-l-4 py-1.5 space-y-1 ${borderClass}`}
-                >
+          if (!hasAnything) return (
+            <p className="text-slate-500 text-sm italic">
+              No significant risk flags identified based on the information provided.
+            </p>
+          );
+
+          return (
+            <div className="space-y-4">
+              {/* SS claiming-age risk */}
+              {showSsCard && (
+                <div className="risk-card risk-card-medium pl-4 border-l-4 border-amber-500 py-1.5 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="brief-risk-title font-bold text-sm text-white">{risk.title}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${badgeClass}`}>
-                      {risk.severity}
+                    <p className="brief-risk-title font-bold text-sm text-white">
+                      Social Security Claiming Strategy
+                    </p>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize bg-amber-900/40 text-amber-300 border border-amber-700/50">
+                      medium
                     </span>
                   </div>
-                  <p className="text-slate-400 text-xs leading-relaxed">{content.why}</p>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    You plan to claim Social Security at age {ssClaimAge}, which reduces your benefit by {ssReductionPct}%
+                    compared to waiting until 67.
+                  </p>
                   <p className="text-slate-300 text-xs leading-relaxed">
                     <span className="brief-ask-label font-semibold text-[#F59E0B]">Ask your advisor: </span>
-                    {question}
+                    Does the math support delaying to 70 given your portfolio size and retirement timeline — and what is the break-even age?
                   </p>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+              {triggeredRisks.map(risk => {
+                const content = RISK_CONTENT[risk.id];
+                if (!content) return null;
+
+                // Build dynamic question for college-retirement-overlap
+                const question = risk.id === 'college-retirement-overlap'
+                  ? `How does my retirement timing affect my children's financial aid eligibility, and which of my accounts count against FAFSA? Should I prioritize 529 contributions or retirement accounts in the next ${yearsOut} years?`
+                  : content.question;
+
+                const borderClass =
+                  risk.severity === 'high'   ? 'risk-card-high border-red-500'   :
+                  risk.severity === 'medium' ? 'risk-card-medium border-amber-500' :
+                                               'risk-card-low border-slate-600';
+                const badgeClass =
+                  risk.severity === 'high'   ? 'bg-red-900/40 text-red-300 border border-red-700/50'       :
+                  risk.severity === 'medium' ? 'bg-amber-900/40 text-amber-300 border border-amber-700/50' :
+                                               'bg-slate-700/50 text-slate-400 border border-slate-600';
+                return (
+                  <div
+                    key={risk.id}
+                    className={`risk-card pl-4 border-l-4 py-1.5 space-y-1 ${borderClass}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="brief-risk-title font-bold text-sm text-white">{risk.title}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${badgeClass}`}>
+                        {risk.severity}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs leading-relaxed">{content.why}</p>
+                    <p className="text-slate-300 text-xs leading-relaxed">
+                      <span className="brief-ask-label font-semibold text-[#F59E0B]">Ask your advisor: </span>
+                      {question}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </SectionBlock>
 
       {/* ── Section 4: Action Plan ─────────────────────────── */}

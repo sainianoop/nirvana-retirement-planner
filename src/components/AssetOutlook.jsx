@@ -40,8 +40,8 @@ function loadFormData() {
   }
 }
 
-// v3: bumped to bust stale caches — per-child 529 rows replace generic balance529 row
-const PROJECTIONS_CACHE_KEY = 'nirvana_projections_v3';
+// v4: bumped — pensionMonthlyIncome removed from ASSET_DEFS (moved to income section)
+const PROJECTIONS_CACHE_KEY = 'nirvana_projections_v4';
 
 function loadCached(formHash) {
   try {
@@ -179,14 +179,8 @@ const ASSET_DEFS = [
     action: 'Build a succession or exit plan now — business value is illiquid until sold.',
     fundsDivisor: null,
   },
-  {
-    key: 'pensionMonthlyIncome',
-    label: 'Pension / Annuity',
-    tax: 'deferred',
-    action: 'Confirm survivor benefit options and understand COLA provisions.',
-    fundsDivisor: 'lifetime',
-    isPension: true,
-  },
+  // pensionMonthlyIncome intentionally omitted here — it is displayed in the
+  // Guaranteed Income Sources table below the asset table.
 ];
 
 // Risk IDs that warn on specific assets
@@ -626,6 +620,115 @@ export default function AssetOutlook() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Guaranteed Income Sources ─────────────────────── */}
+      {(() => {
+        const ssAnnual         = num(formData.ssAnnualTotal);
+        const partnerSsAnnual  = num(formData.partnerSsAnnualTotal);
+        const pensionMonthly   = num(formData.pensionMonthlyIncome);
+        const pensionAnnual    = pensionMonthly * 12;
+        const totalAnnual      = ssAnnual + partnerSsAnnual + pensionAnnual;
+
+        if (totalAnnual <= 0) return null;
+
+        const spending     = num(formData.retirementSpending);
+        const coveragePct  = spending > 0 ? (totalAnnual / spending) * 100 : 0;
+        const coverageColor =
+          coveragePct >= 60 ? 'text-green-400' :
+          coveragePct >= 30 ? 'text-amber-400' :
+                              'text-red-400';
+        const coverageBg =
+          coveragePct >= 60 ? 'bg-green-900/20 border-green-700/40' :
+          coveragePct >= 30 ? 'bg-amber-900/20 border-amber-700/40' :
+                              'bg-red-900/20 border-red-700/40';
+
+        const incomeRows = [
+          ssAnnual > 0 && {
+            source:  'Social Security (you)',
+            monthly: Math.round(ssAnnual / 12),
+            annual:  Math.round(ssAnnual),
+            starts:  `Age ${formData.ssClaimingAge || 67}`,
+          },
+          partnerSsAnnual > 0 && {
+            source:  'Social Security (partner)',
+            monthly: Math.round(partnerSsAnnual / 12),
+            annual:  Math.round(partnerSsAnnual),
+            starts:  `Age ${formData.partnerSsClaimingAge || 67}`,
+          },
+          pensionAnnual > 0 && {
+            source:  'Pension / Annuity',
+            monthly: Math.round(pensionMonthly),
+            annual:  Math.round(pensionAnnual),
+            starts:  'Retirement',
+          },
+        ].filter(Boolean);
+
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-white">Guaranteed Income Sources</h2>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Income that continues regardless of portfolio performance — factored into shortfall projections.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-[#334155]">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#1E293B] text-slate-400 text-xs uppercase tracking-wide">
+                    <th className="text-left px-4 py-3">Source</th>
+                    <th className="text-right px-4 py-3">Monthly</th>
+                    <th className="text-right px-4 py-3">Annual</th>
+                    <th className="text-right px-4 py-3">Starts at</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {incomeRows.map((r, i) => (
+                    <tr
+                      key={i}
+                      className={`border-t border-[#334155] ${i % 2 === 0 ? 'bg-[#0F172A]' : 'bg-[#111827]'}`}
+                    >
+                      <td className="px-4 py-3 text-white font-medium">{r.source}</td>
+                      <td className="px-4 py-3 text-right text-slate-200 font-mono tabular-nums">
+                        ${r.monthly.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-amber-300 font-mono tabular-nums">
+                        ${r.annual.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-400 whitespace-nowrap">{r.starts}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-amber-500/60 bg-[#1E293B] font-bold">
+                    <td className="px-4 py-3 text-white">Total guaranteed income</td>
+                    <td className="px-4 py-3 text-right text-white font-mono tabular-nums">
+                      ${Math.round(totalAnnual / 12).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-amber-300 font-mono tabular-nums">
+                      ${Math.round(totalAnnual).toLocaleString()}
+                    </td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {spending > 0 && (
+              <div className={`rounded-lg px-4 py-3 border ${coverageBg}`}>
+                <p className={`text-sm font-semibold ${coverageColor}`}>
+                  Guaranteed income covers {coveragePct.toFixed(0)}% of your target retirement spending of ${spending.toLocaleString()}/year
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {coveragePct >= 60
+                    ? 'Strong income floor — portfolio withdrawals cover the remaining gap.'
+                    : coveragePct >= 30
+                    ? 'Moderate income floor — portfolio withdrawals cover most spending needs.'
+                    : 'Low income floor — portfolio is primary source of retirement income.'}
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Footnote */}
       <p className="text-xs text-slate-600 text-center pb-2">

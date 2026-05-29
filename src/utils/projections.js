@@ -1,4 +1,13 @@
 /**
+ * Claiming-age multipliers relative to full retirement age (67).
+ * Keys are string representations of the claiming age (62–70).
+ */
+export const SS_CLAIMING_MULTIPLIERS = {
+  '62': 0.700, '63': 0.750, '64': 0.800, '65': 0.867,
+  '66': 0.933, '67': 1.000, '68': 1.080, '69': 1.160, '70': 1.240,
+};
+
+/**
  * Project a current balance forward by `years` at three growth rates.
  * Returns an object with conservative / moderate / aggressive future values.
  */
@@ -42,18 +51,22 @@ export function calculateSuccessProbability(formData, projections) {
   const cashBalance     = n(formData.cashMoneyMarket);
   const cryptoBalance   = n(formData.crypto);
   const pensionIncome   = n(formData.pensionMonthlyIncome);
+  const ssAnnual        = n(formData.ssAnnualTotal);
+  const partnerSsAnnual = n(formData.partnerSsAnnualTotal);
   const homeEquity      = n(formData.equityPrimaryHome);
   const rentalEquity    = n(formData.equityRental);
   const realEstateValue = homeEquity + rentalEquity;
+  const totalGuaranteedAnnual = ssAnnual + partnerSsAnnual + pensionIncome * 12;
 
   let prob = 75;
 
   // ── Upward adjustments ──────────────────────────────────────────────────────
-  if (spending > 0 && totalPortfolio > spending * 30)                           prob += 5; // well-funded
-  if (yearsToRetirement > 10)                                                    prob += 5; // long runway
-  if (totalPortfolio > 0 && (rothBalance + hsaBalance) / totalPortfolio > 0.20) prob += 5; // tax diversification
-  if (spending > 0 && cashBalance > spending * 2)                                prob += 5; // liquidity buffer
-  if (pensionIncome > 0)                                                         prob += 3; // guaranteed income floor
+  if (spending > 0 && totalPortfolio > spending * 30)                            prob += 5; // well-funded
+  if (yearsToRetirement > 10)                                                     prob += 5; // long runway
+  if (totalPortfolio > 0 && (rothBalance + hsaBalance) / totalPortfolio > 0.20)  prob += 5; // tax diversification
+  if (spending > 0 && cashBalance > spending * 2)                                 prob += 5; // liquidity buffer
+  if (pensionIncome > 0 || ssAnnual > 0)                                         prob += 3; // guaranteed income floor
+  if (spending > 0 && totalGuaranteedAnnual > spending * 0.40)                   prob += 3; // strong guaranteed income base
 
   // ── Downward adjustments ────────────────────────────────────────────────────
   if (retireAge > 0 && retireAge < 65 && formData.healthcareRetirement !== 'spouse_employer') prob -= 10; // healthcare gap
@@ -84,10 +97,9 @@ export function calculateSuccessProbability(formData, projections) {
  * @param {{ today: number, moderate: number }} projections
  */
 export function calculateShortfallYear(formData, projections) {
-  const retireAge      = n(formData.retirementAgeUser);
-  const userAge        = n(formData.userAge);
-  const spending       = n(formData.retirementSpending);
-  const income         = n(formData.householdIncome);
+  const retireAge  = n(formData.retirementAgeUser);
+  const userAge    = n(formData.userAge);
+  const spending   = n(formData.retirementSpending);
 
   if (spending <= 0 || projections.moderate <= 0) {
     return { moderate: null, belowAverage: null };
@@ -95,17 +107,51 @@ export function calculateShortfallYear(formData, projections) {
 
   const currentYear    = new Date().getFullYear();
   const retirementYear = currentYear + Math.max(0, retireAge - userAge);
-  const ssAnnual       = income * 0.35;   // ~35% income-replacement approximation
   const MAX_YEARS      = 40;
-  const RETURN_RATE    = 0.04;            // conservative post-retirement growth rate
+  const RETURN_RATE    = 0.04; // conservative post-retirement growth rate
+
+  // ── Guaranteed income streams ─────────────────────────────────────────────
+  // If user has configured SS (ssConfigured flag), use actual values.
+  // Otherwise fall back to the old 35%-of-income approximation from age 67.
+  const ssConfigured    = formData.ssConfigured === true;
+  const userSsAnnual    = ssConfigured ? n(formData.ssAnnualTotal)        : n(formData.householdIncome) * 0.35;
+  const userSsClaimAge  = ssConfigured ? (n(formData.ssClaimingAge) || 67) : 67;
+
+  const partnerSsAnnual    = ssConfigured ? n(formData.partnerSsAnnualTotal)        : 0;
+  const partnerSsClaimAge  = ssConfigured ? (n(formData.partnerSsClaimingAge) || 67) : 67;
+  const partnerCurrentAge  = n(formData.partnerAge);
+
+  // Pension starts immediately at retirement
+  const pensionAnnual = n(formData.pensionMonthlyIncome) * 12;
 
   function simulate(startBalance) {
     if (startBalance <= 0) return retirementYear;
     let balance = startBalance;
+
     for (let y = 0; y < MAX_YEARS; y++) {
-      balance *= (1 + RETURN_RATE);                    // annual portfolio growth
-      if (retireAge + y >= 67) balance += ssAnnual;   // Social Security from age 67
-      balance -= spending;                              // annual withdrawal
+      balance *= (1 + RETURN_RATE); // annual portfolio growth
+
+      const userAgeThisYear = retireAge + y;
+
+      // User SS — starts when user reaches claiming age
+      if (userAgeThisYear >= userSsClaimAge && userSsAnnual > 0) {
+        balance += userSsAnnual;
+      }
+
+      // Partner SS — track partner's age separately
+      if (partnerSsAnnual > 0) {
+        const partnerAgeThisYear = partnerCurrentAge > 0
+          ? partnerCurrentAge + (retireAge - userAge) + y
+          : userAgeThisYear; // fallback: assume same age as user
+        if (partnerAgeThisYear >= partnerSsClaimAge) {
+          balance += partnerSsAnnual;
+        }
+      }
+
+      // Pension from day 1 of retirement
+      if (pensionAnnual > 0) balance += pensionAnnual;
+
+      balance -= spending; // annual withdrawal
       if (balance <= 0) return retirementYear + y;
     }
     return null; // funded through the entire simulation window

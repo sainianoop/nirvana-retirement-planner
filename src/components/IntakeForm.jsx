@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// Social Security claiming-age adjustment multipliers (relative to FRA = age 67)
+const SS_CLAIMING_MULTIPLIERS = {
+  '62': 0.700, '63': 0.750, '64': 0.800, '65': 0.867,
+  '66': 0.933, '67': 1.000, '68': 1.080, '69': 1.160, '70': 1.240,
+};
+
+const SS_CLAIMING_AGES = [62, 63, 64, 65, 66, 67, 68, 69, 70];
+
 const US_STATES = [
   'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
   'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
@@ -46,6 +54,17 @@ const DEFAULT_STATE = {
   healthcareToday: '',
   healthcareRetirement: '',
 
+  // Section 2 — Retirement Income Sources
+  ssMode: 'estimate',             // 'know' | 'estimate'
+  ssMonthlyBenefit: '',           // used when ssMode === 'know'
+  ssClaimingAge: '67',
+  ssAnnualTotal: 0,               // computed and saved on submit
+  partnerSsMode: 'estimate',
+  partnerSsMonthlyBenefit: '',
+  partnerSsClaimingAge: '67',
+  partnerSsAnnualTotal: 0,        // computed and saved on submit
+  ssConfigured: false,            // set to true after first save — enables projection fallback detection
+
   // Section 3 — Assets
   balance401k: '',
   balanceTraditionalIRA: '',
@@ -79,7 +98,8 @@ const DEFAULT_STATE = {
 const ASSET_BALANCE_KEYS = [
   'balance401k', 'balanceTraditionalIRA', 'balanceRothIRA', 'balanceHSA',
   'balanceStocks', 'balanceBrokerage', 'balance529', 'equityPrimaryHome',
-  'equityRental', 'equityBusiness', 'cashMoneyMarket', 'crypto', 'pensionMonthlyIncome',
+  'equityRental', 'equityBusiness', 'cashMoneyMarket', 'crypto',
+  // pensionMonthlyIncome intentionally excluded — it lives in Section 2 Income Sources
 ];
 
 function loadFromStorage() {
@@ -416,7 +436,30 @@ export default function IntakeForm() {
     const retireAge = parseFloat(form.retirementAgeUser) || 0;
     const retiringSoon = retireAge > 0 && userAge > 0 && (retireAge - userAge) <= 1.5;
 
-    const dataToSave = { ...form, retiringWithin18Months: retiringSoon };
+    // Compute and persist SS annual totals so projections.js can use exact values
+    const ann = parseFloat(form.householdIncome) || 0;
+    const ssMultiplier = SS_CLAIMING_MULTIPLIERS[form.ssClaimingAge] ?? 1.0;
+    const ssMonthly = form.ssMode === 'know'
+      ? (parseFloat(form.ssMonthlyBenefit) || 0)
+      : Math.round((ann * 0.35 / 12) * ssMultiplier);
+    const ssAnnualTotal = Math.round(ssMonthly * 12);
+
+    let partnerSsAnnualTotal = 0;
+    if (form.hasPartner) {
+      const partnerMult = SS_CLAIMING_MULTIPLIERS[form.partnerSsClaimingAge] ?? 1.0;
+      const partnerMonthly = form.partnerSsMode === 'know'
+        ? (parseFloat(form.partnerSsMonthlyBenefit) || 0)
+        : Math.round((ann * 0.35 / 12) * partnerMult);
+      partnerSsAnnualTotal = Math.round(partnerMonthly * 12);
+    }
+
+    const dataToSave = {
+      ...form,
+      retiringWithin18Months: retiringSoon,
+      ssAnnualTotal,
+      partnerSsAnnualTotal,
+      ssConfigured: true,
+    };
     localStorage.setItem('nirvana_intake', JSON.stringify(dataToSave));
     localStorage.setItem('nirvana_retiring_soon', JSON.stringify(retiringSoon));
     if (form.additionalContext) {
@@ -448,6 +491,15 @@ export default function IntakeForm() {
 
   const numChildren          = Number(form.numChildren);
   const showPartnerRetirement = form.hasPartner && form.partnerAge !== '';
+
+  // SS estimate computations (live — also recomputed at submit time for persistence)
+  const annualIncome           = parseFloat(form.householdIncome) || 0;
+  const ssMultiplier           = SS_CLAIMING_MULTIPLIERS[form.ssClaimingAge]        ?? 1.0;
+  const partnerSsMult          = SS_CLAIMING_MULTIPLIERS[form.partnerSsClaimingAge] ?? 1.0;
+  const ssEstConservative      = annualIncome > 0 ? Math.round(annualIncome * 0.25 / 12 * ssMultiplier)  : 0;
+  const ssEstModerate          = annualIncome > 0 ? Math.round(annualIncome * 0.35 / 12 * ssMultiplier)  : 0;
+  const partnerSsEstConservative = annualIncome > 0 ? Math.round(annualIncome * 0.25 / 12 * partnerSsMult) : 0;
+  const partnerSsEstModerate     = annualIncome > 0 ? Math.round(annualIncome * 0.35 / 12 * partnerSsMult) : 0;
   const expenseAutoFilled     =
     form.showExpenseBreakdown &&
     totalMonthly > 0 &&
@@ -825,6 +877,200 @@ export default function IntakeForm() {
             </div>
           </div>
 
+          {/* Retirement Income Sources */}
+          <div className="space-y-5">
+            <SubHeader title="Retirement Income Sources" />
+
+            {/* ── Social Security — You ───────────────────────── */}
+            <div className="space-y-3">
+              <AssetGroupHeader title="Social Security — You" />
+
+              {/* Mode toggle */}
+              <div className="flex rounded-md overflow-hidden border border-[#334155] w-fit">
+                {[['know', 'I know my monthly amount'], ['estimate', 'Estimate for me']].map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => set('ssMode', val)}
+                    className={
+                      'px-3 py-1.5 text-xs font-medium transition-colors ' +
+                      (form.ssMode === val
+                        ? 'bg-[#334155] text-white'
+                        : 'bg-transparent text-slate-500 hover:text-slate-300')
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {form.ssMode === 'know' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pl-5 border-l-2 border-[#F59E0B]/30">
+                  <div>
+                    <label className={labelClass}>Monthly benefit at claiming age</label>
+                    <DollarInput
+                      value={form.ssMonthlyBenefit}
+                      onChange={v => set('ssMonthlyBenefit', v)}
+                      placeholder="e.g. 3,500"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Claiming age</label>
+                    <select
+                      value={form.ssClaimingAge}
+                      onChange={e => set('ssClaimingAge', e.target.value)}
+                      className={inputClass}
+                    >
+                      {SS_CLAIMING_AGES.map(a => (
+                        <option key={a} value={String(a)}>
+                          {a}{a === 62 ? ' — earliest (–30%)' : a === 67 ? ' — full retirement age' : a === 70 ? ' — maximum (+24%)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="pl-5 border-l-2 border-[#F59E0B]/30 space-y-3">
+                  {annualIncome > 0 ? (
+                    <div className="bg-[#0F172A] rounded-lg px-4 py-3 border border-[#334155]">
+                      <p className="text-xs text-slate-400 mb-1">
+                        Estimated benefit at age {form.ssClaimingAge || 67}
+                      </p>
+                      <p className="text-white font-semibold text-lg">
+                        ${ssEstConservative.toLocaleString()} – ${ssEstModerate.toLocaleString()}/mo
+                      </p>
+                      {form.ssClaimingAge && form.ssClaimingAge !== '67' && (
+                        <p className="text-xs text-amber-500 mt-1">
+                          {Number(form.ssClaimingAge) < 67
+                            ? `Claiming early reduces benefit by ${Math.round((1 - (SS_CLAIMING_MULTIPLIERS[form.ssClaimingAge] ?? 1)) * 100)}% vs. waiting to 67`
+                            : `Delaying to ${form.ssClaimingAge} increases benefit by ${Math.round(((SS_CLAIMING_MULTIPLIERS[form.ssClaimingAge] ?? 1) - 1) * 100)}% vs. claiming at 67`
+                          }
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-600 mt-1">Based on 25–35% income replacement · estimate only</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">
+                      Enter your household income above to see an estimate.
+                    </p>
+                  )}
+                  <div>
+                    <label className={labelClass}>Claiming age</label>
+                    <select
+                      value={form.ssClaimingAge}
+                      onChange={e => set('ssClaimingAge', e.target.value)}
+                      className={inputClass}
+                    >
+                      {SS_CLAIMING_AGES.map(a => (
+                        <option key={a} value={String(a)}>
+                          {a}{a === 62 ? ' — earliest (–30%)' : a === 67 ? ' — full retirement age' : a === 70 ? ' — maximum (+24%)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Social Security — Partner ───────────────────── */}
+            {form.hasPartner && (
+              <div className="space-y-3">
+                <AssetGroupHeader title="Social Security — Partner" />
+
+                <div className="flex rounded-md overflow-hidden border border-[#334155] w-fit">
+                  {[['know', 'I know their amount'], ['estimate', 'Estimate for me']].map(([val, label]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => set('partnerSsMode', val)}
+                      className={
+                        'px-3 py-1.5 text-xs font-medium transition-colors ' +
+                        (form.partnerSsMode === val
+                          ? 'bg-[#334155] text-white'
+                          : 'bg-transparent text-slate-500 hover:text-slate-300')
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {form.partnerSsMode === 'know' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pl-5 border-l-2 border-[#F59E0B]/30">
+                    <div>
+                      <label className={labelClass}>Partner's monthly benefit</label>
+                      <DollarInput
+                        value={form.partnerSsMonthlyBenefit}
+                        onChange={v => set('partnerSsMonthlyBenefit', v)}
+                        placeholder="e.g. 2,800"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Partner's claiming age</label>
+                      <select
+                        value={form.partnerSsClaimingAge}
+                        onChange={e => set('partnerSsClaimingAge', e.target.value)}
+                        className={inputClass}
+                      >
+                        {SS_CLAIMING_AGES.map(a => (
+                          <option key={a} value={String(a)}>
+                            {a}{a === 67 ? ' — full retirement age' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pl-5 border-l-2 border-[#F59E0B]/30 space-y-3">
+                    {annualIncome > 0 ? (
+                      <div className="bg-[#0F172A] rounded-lg px-4 py-3 border border-[#334155]">
+                        <p className="text-xs text-slate-400 mb-1">
+                          Estimated benefit at age {form.partnerSsClaimingAge || 67}
+                        </p>
+                        <p className="text-white font-semibold text-lg">
+                          ${partnerSsEstConservative.toLocaleString()} – ${partnerSsEstModerate.toLocaleString()}/mo
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1">Based on household income · estimate only</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 italic">
+                        Enter household income above to see an estimate.
+                      </p>
+                    )}
+                    <div>
+                      <label className={labelClass}>Partner's claiming age</label>
+                      <select
+                        value={form.partnerSsClaimingAge}
+                        onChange={e => set('partnerSsClaimingAge', e.target.value)}
+                        className={inputClass}
+                      >
+                        {SS_CLAIMING_AGES.map(a => (
+                          <option key={a} value={String(a)}>
+                            {a}{a === 67 ? ' — full retirement age' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Pension / Annuity (moved from Assets) ──────── */}
+            <div className="space-y-3">
+              <AssetGroupHeader title="Pension / Annuity" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <AssetRow
+                  label="Monthly income"
+                  subLabel="Guaranteed monthly payment — not a lump-sum balance"
+                  value={form.pensionMonthlyIncome}
+                  onChange={v => set('pensionMonthlyIncome', v)}
+                  placeholder="e.g. 4,000"
+                />
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -881,12 +1127,6 @@ export default function IntakeForm() {
               <AssetRow label="529 Total Balance" value={form.balance529} onChange={v => set('balance529', v)} />
               <AssetRow label="Business / Private Equity" value={form.equityBusiness} onChange={v => set('equityBusiness', v)} />
               <AssetRow label="Cash / Money Market" value={form.cashMoneyMarket} onChange={v => set('cashMoneyMarket', v)} />
-              <AssetRow
-                label="Pension / Annuity"
-                subLabel="Monthly income — not a lump sum"
-                value={form.pensionMonthlyIncome}
-                onChange={v => set('pensionMonthlyIncome', v)}
-              />
             </div>
           </div>
 
