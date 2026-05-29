@@ -98,8 +98,13 @@ const RISK_CONTENT = {
     question: 'How much should I convert to Roth each year between now and 73 to minimize lifetime taxes and future RMDs?',
   },
   'college-retirement-overlap': {
-    why: 'Your retirement timeline overlaps with college tuition years for one or more children.',
-    question: 'How does my retirement timing affect financial aid eligibility, and which accounts count against FAFSA?',
+    why: 'Your retirement timeline overlaps with college tuition years for one or more children, creating a dual funding pressure on your portfolio.',
+    // question is dynamic — built in the render loop using yearsOut
+    question: null,
+  },
+  '529-underfunded': {
+    why: 'Based on your current 529 balance, one or more children\'s plans appear projected to cover less than 2 years of college costs ($35K/yr) by age 18.',
+    question: 'What contribution rate and investment mix would put each child\'s 529 on track to cover 4+ years of college costs? Are there state-specific tax deductions available to boost our contributions?',
   },
   'real-estate-concentration': {
     why: 'More than 35% of your net worth is tied up in real estate, which is illiquid and hard to rebalance.',
@@ -354,6 +359,10 @@ export default function AdvisorBrief() {
   };
   const healthcareLabel = HEALTHCARE_LABELS[formData.healthcareRetirement] || formData.healthcareRetirement || null;
 
+  // Children data
+  const childrenData = Array.isArray(formData.children) ? formData.children : [];
+  const numChildrenForm = Number(formData.numChildren) || 0;
+
   // Triggered risks
   const triggeredRisks = analyzeRisks(formData).filter(r => r.triggered);
 
@@ -426,6 +435,27 @@ export default function AdvisorBrief() {
             {formData.hasPartner && partnerAge > 0 && (
               <SnapRow label="Partner's age" value={`${partnerAge}`} />
             )}
+
+            {/* Children detail — one row per child */}
+            {numChildrenForm === 0 ? (
+              <SnapRow label="Children" value="None" />
+            ) : childrenData.length > 0 && childrenData.some(c => num(c.age) > 0) ? (
+              childrenData.map((c, i) => {
+                const age = num(c.age);
+                const yearsToCollege = Math.max(0, 18 - age);
+                const collegeYear = new Date().getFullYear() + yearsToCollege;
+                return (
+                  <SnapRow
+                    key={i}
+                    label={i === 0 ? 'Children' : ''}
+                    value={`Child ${i + 1}: Age ${age > 0 ? age : '?'} · 529 funded: ${c.has529 ? 'Yes' : 'No'} · College in ${yearsToCollege} yr${yearsToCollege !== 1 ? 's' : ''} (${collegeYear})`}
+                  />
+                );
+              })
+            ) : (
+              <SnapRow label="Children" value={`${numChildrenForm} (ages not entered)`} />
+            )}
+
             <SnapRow label="Target retirement year" value={retireAge ? `${retireYear}` : null} />
             <SnapRow label="State of residence"     value={formData.state || null} />
             <SnapRow
@@ -550,6 +580,12 @@ export default function AdvisorBrief() {
             {triggeredRisks.map(risk => {
               const content = RISK_CONTENT[risk.id];
               if (!content) return null;
+
+              // Build dynamic question for college-retirement-overlap
+              const question = risk.id === 'college-retirement-overlap'
+                ? `How does my retirement timing affect my children's financial aid eligibility, and which of my accounts count against FAFSA? Should I prioritize 529 contributions or retirement accounts in the next ${yearsOut} years?`
+                : content.question;
+
               const borderClass =
                 risk.severity === 'high'   ? 'risk-card-high border-red-500'   :
                 risk.severity === 'medium' ? 'risk-card-medium border-amber-500' :
@@ -572,7 +608,7 @@ export default function AdvisorBrief() {
                   <p className="text-slate-400 text-xs leading-relaxed">{content.why}</p>
                   <p className="text-slate-300 text-xs leading-relaxed">
                     <span className="brief-ask-label font-semibold text-[#F59E0B]">Ask your advisor: </span>
-                    {content.question}
+                    {question}
                   </p>
                 </div>
               );

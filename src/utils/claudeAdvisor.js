@@ -182,6 +182,25 @@ export async function generateActionPlan(formData, risks) {
 
   const additionalContext = (formData.additionalContext || '').trim();
 
+  // Build children context for the prompt
+  const children = Array.isArray(formData.children) ? formData.children : [];
+  const COLLEGE_COST = 35_000;
+  const total529 = num(formData.balance529);
+  const per529 = children.length > 0 && total529 > 0 ? total529 / children.length : 0;
+
+  const childrenContext = children.length > 0 && children.some(c => num(c.age) > 0)
+    ? (() => {
+        const lines = children.map((c, i) => {
+          const age = num(c.age);
+          const yearsToCollege = Math.max(0, 18 - age);
+          const projAt18 = per529 > 0 ? per529 * Math.pow(1.07, yearsToCollege) : 0;
+          const coverageYrs = projAt18 > 0 ? (projAt18 / COLLEGE_COST).toFixed(1) : '0';
+          return `  - Child ${i + 1}: age ${age > 0 ? age : '?'}, ${c.has529 ? '529 funded' : 'no 529 on record'}, college in ${yearsToCollege} year${yearsToCollege !== 1 ? 's' : ''}, 529 projected to cover ~${coverageYrs} yrs of costs ($35K/yr)`;
+        });
+        return `\nHousehold has ${children.length} child${children.length !== 1 ? 'ren' : ''} (ages: ${children.map(c => num(c.age) || '?').join(', ')}):\n${lines.join('\n')}\nFactor college timelines and 529 adequacy into the action plan — reference specific children and timelines where relevant.`;
+      })()
+    : '';
+
   const prompt = `You are a retirement planning assistant helping a financial planner's client build a personalized action plan.
 
 Client profile:
@@ -195,6 +214,7 @@ ${assetLines}
 Triggered risk flags:
 ${triggeredRisks}
 ${additionalContext ? `\nAdditional context from client: "${additionalContext}"` : ''}
+${childrenContext}
 
 Generate a concrete, personalized retirement action plan in three time buckets: Next 30 Days, Next 90 Days, This Year. Each bucket should have 3-5 specific action items. Each action item should be one sentence, specific and named (e.g. 'Increase 401k contribution to IRS maximum of $23,000' not 'Save more for retirement'). Reference the user's actual numbers where relevant. Do not give investment advice — recommend actions and advisor conversations.
 

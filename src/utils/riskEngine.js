@@ -5,6 +5,12 @@ function num(val) {
   return isNaN(n) ? 0 : n;
 }
 
+// Inline projection at 7% — avoids import cycle with projections.js
+function projectModerate(balance, years) {
+  if (years <= 0 || balance <= 0) return balance;
+  return balance * Math.pow(1.07, years);
+}
+
 // Liquid + investable accounts (excludes real estate, business equity)
 export function getTotalInvestableAssets(formData) {
   return (
@@ -76,14 +82,25 @@ export function analyzeRisks(formData) {
   };
 
   // ── 5. College–retirement timeline overlap ────────────────────────────────
-  const nearCollegeChildren = children.filter(c => num(c.age) >= 14);
-  const collegeCount        = nearCollegeChildren.length;
-  const withinSevenYears    = yearsOut > 0 && yearsOut <= 7;
+  // Triggered when a child's college start year (age 18) falls within 7 years of
+  // the user's planned retirement year. Severity is HIGH when within 3 years.
+  const overlapChildren = children.filter(c => {
+    const age = num(c.age);
+    if (age <= 0) return false;
+    const yearsToCollege = Math.max(0, 18 - age);
+    return Math.abs(yearsToCollege - yearsOut) <= 7;
+  });
+  const highOverlapChildren = overlapChildren.filter(c => {
+    const age = num(c.age);
+    const yearsToCollege = Math.max(0, 18 - age);
+    return Math.abs(yearsToCollege - yearsOut) <= 3;
+  });
   const collegeOverlap = {
     id: 'college-retirement-overlap',
     title: 'College Funding and Retirement Timeline Overlap',
-    severity: collegeCount >= 2 ? 'high' : 'medium',
-    triggered: collegeCount >= 1 && withinSevenYears,
+    severity: highOverlapChildren.length > 0 ? 'high' : 'medium',
+    triggered: overlapChildren.length > 0 && yearsOut > 0,
+    detail: { affectedAges: overlapChildren.map(c => num(c.age)) },
   };
 
   // ── 6. Real estate concentration ──────────────────────────────────────────
@@ -133,6 +150,27 @@ export function analyzeRisks(formData) {
     triggered: formData.liquidityEventExpected === true,
   };
 
+  // ── 11. 529 Plan Underfunded ──────────────────────────────────────────────
+  // Triggers when any child under 15 has a projected 529 balance at age 18
+  // that covers less than 2 years of college costs ($35K/yr).
+  const total529 = num(formData.balance529);
+  const youngChildren = children.filter(c => num(c.age) > 0 && num(c.age) < 15);
+  const underfundedChildren = youngChildren.filter(c => {
+    const age = num(c.age);
+    const yearsToCollege = Math.max(0, 18 - age);
+    const perChildBalance = children.length > 0 && total529 > 0
+      ? total529 / children.length
+      : 0;
+    const projBalance = projectModerate(perChildBalance, yearsToCollege);
+    return projBalance / 35_000 < 2;
+  });
+  const underfunded529 = {
+    id: '529-underfunded',
+    title: '529 Plan Appears Underfunded',
+    severity: 'medium',
+    triggered: underfundedChildren.length > 0,
+  };
+
   const risks = [
     concentrationRisk,
     healthcareBridge,
@@ -144,6 +182,7 @@ export function analyzeRisks(formData) {
     oneMoreYear,
     preRetirementChecklist,
     liquidityEvent,
+    underfunded529,
   ];
 
   // Sort: high → medium → low; untriggered items last within each tier
@@ -203,7 +242,7 @@ Expected output:
   [✓] high   liquidity-event
   [ ] high   pre-retirement-checklist  (not within 18 months)
   [✓] medium roth-conversion-window
-  [✓] medium college-retirement-overlap
+  [✓] high   college-retirement-overlap   (child 15: |3-5| = 2 ≤ 3yr window → HIGH)
   [ ] medium real-estate-concentration (400k / 1.64M = 24% — under 35%)
   [ ] medium one-more-year             (1.24M < 2.25M fire number)
   [✓] low    withdrawal-sequencing

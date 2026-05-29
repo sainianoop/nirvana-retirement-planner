@@ -40,8 +40,8 @@ function loadFormData() {
   }
 }
 
-// v2: bumped to bust stale caches missing balanceStocks / pensionMonthlyIncome
-const PROJECTIONS_CACHE_KEY = 'nirvana_projections_v2';
+// v3: bumped to bust stale caches — per-child 529 rows replace generic balance529 row
+const PROJECTIONS_CACHE_KEY = 'nirvana_projections_v3';
 
 function loadCached(formHash) {
   try {
@@ -209,6 +209,7 @@ function buildRows(formData) {
   const years     = Math.max(0, retireAge - userAge);
   const spending  = num(formData.retirementSpending);
   const COLLEGE   = 35_000;
+  const children  = Array.isArray(formData.children) ? formData.children : [];
 
   // Which risk IDs are triggered?
   const triggeredRiskIds = new Set(
@@ -224,8 +225,45 @@ function buildRows(formData) {
   }
 
   const rows = [];
+  const currentYear = new Date().getFullYear();
 
   for (const def of ASSET_DEFS) {
+    // ── 529: replace generic row with one row per child ──────
+    if (def.key === 'balance529' && children.length > 0) {
+      const total529 = num(formData.balance529);
+      if (total529 <= 0) continue;
+      const perChildBalance = total529 / children.length;
+
+      children.forEach((child, i) => {
+        const childAge      = num(child.age);
+        const yearsToCollege = Math.max(0, 18 - childAge); // default 18 if age blank
+        const proj           = projectAsset(perChildBalance, yearsToCollege);
+        const coverageYrs    = proj.moderate / COLLEGE;
+        const isUnderfunded  = coverageYrs < 2;
+        const collegeYear    = currentYear + yearsToCollege;
+
+        rows.push({
+          key:        `balance529_child_${i}`,
+          label:      `529 — Child ${i + 1} (age ${childAge > 0 ? childAge : '?'})`,
+          tax:        'education',
+          balance:    perChildBalance,
+          proj,
+          fundsLabel: `~${coverageYrs.toFixed(1)} yrs college`,
+          action:     `Projected to cover ~${coverageYrs.toFixed(1)} yrs of college costs at age 18 ($35K/yr). ${
+            child.has529
+              ? 'Review investment glide path as college approaches.'
+              : 'No 529 on record — consider opening one to benefit from tax-free growth.'
+          }`,
+          warned:     isUnderfunded,
+          warnTooltip: isUnderfunded
+            ? `Child ${i + 1} reaches college age in ${collegeYear} — projected balance may not cover full costs`
+            : null,
+        });
+      });
+      continue;
+    }
+
+    // ── All other assets ──────────────────────────────────────
     const balance = num(formData[def.key]);
     if (balance <= 0) continue;
 
@@ -245,14 +283,15 @@ function buildRows(formData) {
     }
 
     rows.push({
-      key:      def.key,
-      label:    def.label,
-      tax:      def.tax,
+      key:        def.key,
+      label:      def.label,
+      tax:        def.tax,
       balance,
       proj,
       fundsLabel,
-      action:   def.action,
-      warned:   warnedKeys.has(def.key),
+      action:     def.action,
+      warned:     warnedKeys.has(def.key),
+      warnTooltip: null,
     });
   }
 
@@ -556,7 +595,10 @@ export default function AssetOutlook() {
                 {/* Warning icon */}
                 <td className="px-3 py-3 text-center">
                   {row.warned && (
-                    <span title="Risk flag applies to this asset" className="text-amber-400 text-base">
+                    <span
+                      title={row.warnTooltip || 'Risk flag applies to this asset'}
+                      className="text-amber-400 text-base cursor-help"
+                    >
                       ⚠️
                     </span>
                   )}

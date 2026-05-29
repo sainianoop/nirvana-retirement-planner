@@ -456,6 +456,26 @@ export default function IntakeForm() {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
 
+      {/* ── Profile summary card (visible when saved data exists) ── */}
+      {form.userAge && (
+        <div className="bg-[#1E293B] border border-[#F59E0B]/30 rounded-xl px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+          <span className="text-base select-none">👨‍👩‍👧</span>
+          <span className="text-slate-300">
+            <span className="text-white font-semibold">Age {form.userAge}</span>
+            {form.state ? <span> · {form.state}</span> : null}
+            {numChildren > 0
+              ? <span> · {numChildren} child{numChildren !== 1 ? 'ren' : ''}</span>
+              : <span> · No children</span>
+            }
+            {form.retirementAgeUser
+              ? <span> · Retiring in {Math.max(0, Number(form.retirementAgeUser) - Number(form.userAge))} years</span>
+              : null
+            }
+          </span>
+          <span className="ml-auto text-xs text-slate-500 italic">Your saved profile ✓</span>
+        </div>
+      )}
+
       {/* ── Hero ─────────────────────────────────────────────── */}
       <div className="pt-2">
         <h1 className="text-3xl font-bold text-white leading-tight mb-3">
