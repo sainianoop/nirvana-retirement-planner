@@ -35,9 +35,12 @@ function loadFormData() {
   }
 }
 
+// v2: bumped to bust stale caches missing balanceStocks / pensionMonthlyIncome
+const PROJECTIONS_CACHE_KEY = 'nirvana_projections_v2';
+
 function loadCached(formHash) {
   try {
-    const raw = localStorage.getItem('nirvana_projections');
+    const raw = localStorage.getItem(PROJECTIONS_CACHE_KEY);
     if (!raw) return null;
     const cached = JSON.parse(raw);
     if (cached.hash !== formHash) return null;
@@ -49,7 +52,7 @@ function loadCached(formHash) {
 
 function saveCache(formHash, rows) {
   try {
-    localStorage.setItem('nirvana_projections', JSON.stringify({ hash: formHash, rows }));
+    localStorage.setItem(PROJECTIONS_CACHE_KEY, JSON.stringify({ hash: formHash, rows }));
   } catch {}
 }
 
@@ -109,6 +112,13 @@ const ASSET_DEFS = [
     fundsDivisor: 'spending',
   },
   {
+    key: 'balanceStocks',
+    label: 'Stocks / Individual Equities',
+    tax: 'taxable',
+    action: 'Review concentration — any single position over 5–10% of portfolio warrants a review with your advisor.',
+    fundsDivisor: 'spending',
+  },
+  {
     key: 'balanceBrokerage',
     label: 'Taxable Brokerage',
     tax: 'taxable',
@@ -165,8 +175,8 @@ const ASSET_DEFS = [
     fundsDivisor: null,
   },
   {
-    key: 'pension',
-    label: 'Pension (Annual)',
+    key: 'pensionMonthlyIncome',
+    label: 'Pension / Annuity',
     tax: 'deferred',
     action: 'Confirm survivor benefit options and understand COLA provisions.',
     fundsDivisor: 'lifetime',
@@ -176,7 +186,7 @@ const ASSET_DEFS = [
 
 // Risk IDs that warn on specific assets
 const RISK_TO_ASSET_KEYS = {
-  'concentration-risk':       ['balanceBrokerage'],
+  'concentration-risk':       ['balanceStocks', 'balanceBrokerage'],
   'sequence-of-returns':      ['cashMoneyMarket'],
   'roth-conversion-window':   ['balance401k', 'balanceTraditionalIRA'],
   'real-estate-concentration':['equityPrimaryHome', 'equityRental'],

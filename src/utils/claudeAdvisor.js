@@ -151,6 +151,7 @@ const ASSET_LABELS = {
   balance401k:           '401(k)',
   balanceTraditionalIRA: 'Traditional IRA',
   balanceRothIRA:        'Roth IRA',
+  balanceStocks:         'Stocks / Individual Equities',
   balanceBrokerage:      'Taxable Brokerage',
   balanceHSA:            'HSA',
   balance529:            '529 Plan',
@@ -159,7 +160,7 @@ const ASSET_LABELS = {
   equityPrimaryHome:     'Primary Home Equity',
   equityRental:          'Rental Property Equity',
   equityBusiness:        'Business Equity',
-  pension:               'Pension (Annual)',
+  pensionMonthlyIncome:  'Pension / Annuity (Monthly)',
 };
 
 export async function generateActionPlan(formData, risks) {
