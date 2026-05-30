@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { analyzeRisks } from '../utils/riskEngine';
 import { projectAsset, calculateSuccessProbability } from '../utils/projections';
+import { buildRetirementPicture } from '../utils/retirementPicture';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -713,31 +714,31 @@ export default function AdvisorBrief() {
         })()}
       </SectionBlock>
 
-      {/* ── Section 4: Situation at a Glance ──────────────── */}
-      {actionPlan && actionPlan.situation_summary && (() => {
-        const ss = actionPlan.situation_summary;
+      {/* ── Section 4: Situation at a Glance (locally computed) ── */}
+      {(() => {
+        const picture    = buildRetirementPicture(formData);
         const hasChildren = Array.isArray(formData.children)
           && formData.children.some(c => num(c.age) > 0);
 
-        const summaryCategories = [
-          { key: 'household',     label: 'You & Your Household',          show: (ss.household     || []).length > 0 },
-          { key: 'kids',          label: 'Your Kids',                      show: hasChildren && (ss.kids || []).length > 0 },
-          { key: 'opportunities', label: 'Opportunities You May Be Missing', show: (ss.opportunities || []).length > 0 },
-        ].filter(c => c.show);
+        const categories = [
+          { key: 'household',     label: 'You & Your Household',            items: picture.household },
+          { key: 'kids',          label: 'Your Kids',                        items: picture.kids,          skip: !hasChildren },
+          { key: 'opportunities', label: 'Opportunities Worth Exploring',    items: picture.opportunities },
+        ].filter(c => !c.skip && c.items.length > 0);
 
-        if (summaryCategories.length === 0) return null;
+        if (categories.length === 0) return null;
 
         return (
           <SectionBlock number="4" title="Your Situation at a Glance">
             <div className="space-y-4">
-              {summaryCategories.map(cat => (
+              {categories.map(cat => (
                 <div key={cat.key}>
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
                     {cat.label}
                   </p>
                   <ul className="space-y-1.5 list-disc list-outside ml-4">
-                    {(ss[cat.key] || []).map((item, i) => (
-                      <li key={i} className="text-slate-300 text-xs leading-relaxed">{item}</li>
+                    {cat.items.map((card, i) => (
+                      <li key={i} className="text-slate-300 text-xs leading-relaxed">{card.text}</li>
                     ))}
                   </ul>
                 </div>
@@ -747,11 +748,8 @@ export default function AdvisorBrief() {
         );
       })()}
 
-      {/* ── Section 4 or 5: Action Plan ───────────────────── */}
-      <SectionBlock
-        number={actionPlan && actionPlan.situation_summary ? '5' : '4'}
-        title="Your Action Plan"
-      >
+      {/* ── Section 5: Action Plan ────────────────────────── */}
+      <SectionBlock number="5" title="Your Action Plan">
         {!actionPlan ? (
           <p className="text-slate-500 text-sm italic">
             Generate your Action Plan first, then return here to include it in your brief.{' '}

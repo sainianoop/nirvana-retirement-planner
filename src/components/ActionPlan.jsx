@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { generateActionPlan } from '../utils/claudeAdvisor';
 import { analyzeRisks } from '../utils/riskEngine';
 import { hashFormData } from '../utils/projections';
+import { buildRetirementPicture } from '../utils/retirementPicture';
 
 // ─────────────────────────────────────────────────────────────
 // Constants
@@ -27,7 +28,6 @@ const FALLBACK = {
     'Review asset allocation across all accounts — rebalance if target weights have drifted',
     'Explore Roth conversion if you expect lower income this year than in retirement',
   ],
-  situation_summary: null,
 };
 
 const SECTIONS = [
@@ -201,47 +201,28 @@ function ActionSection({ section, items, checked, onToggle }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Situation Summary component
+// Retirement Picture — computed locally, no API call
 // ─────────────────────────────────────────────────────────────
-const SUMMARY_SECTIONS = [
-  {
-    key: 'household',
-    title: 'You & Your Household',
-    icon: '⚠️',
-    borderColor: 'border-red-500',
-    bg: 'bg-red-950/30',
-  },
-  {
-    key: 'kids',
-    title: 'Your Kids',
-    icon: '👨‍👩‍👧',
-    borderColor: 'border-blue-500',
-    bg: 'bg-blue-950/30',
-  },
-  {
-    key: 'opportunities',
-    title: 'Opportunities You May Be Missing',
-    icon: '💡',
-    borderColor: 'border-green-500',
-    bg: 'bg-green-950/30',
-  },
+const PICTURE_SECTIONS = [
+  { key: 'household',     title: 'You & Your Household' },
+  { key: 'kids',          title: 'Your Kids' },
+  { key: 'opportunities', title: 'Opportunities Worth Exploring' },
 ];
 
-function SituationSummary({ summary, hasChildren }) {
+function RetirementPicture({ formData }) {
+  const hasChildren = !!formData && Array.isArray(formData.children)
+    && formData.children.some(c => parseFloat(c.age) > 0);
+
+  const picture = useMemo(() => buildRetirementPicture(formData), [formData]);
+
   const [expanded, setExpanded] = useState({ household: true, kids: true, opportunities: true });
 
-  const visibleSections = useMemo(() => {
-    return SUMMARY_SECTIONS.filter(s => {
-      if (s.key === 'kids' && !hasChildren) return false;
-      return (summary[s.key] || []).length > 0;
-    });
-  }, [summary, hasChildren]);
+  const visibleSections = PICTURE_SECTIONS.filter(s => {
+    if (s.key === 'kids' && !hasChildren) return false;
+    return (picture[s.key] || []).length > 0;
+  });
 
   if (visibleSections.length === 0) return null;
-
-  function toggle(key) {
-    setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
-  }
 
   return (
     <div className="bg-[#1E293B] rounded-xl border border-[#334155] overflow-hidden">
@@ -256,18 +237,16 @@ function SituationSummary({ summary, hasChildren }) {
 
       <div className="p-4 space-y-3">
         {visibleSections.map(section => {
-          const items = summary[section.key] || [];
+          const items     = picture[section.key] || [];
           const isExpanded = expanded[section.key];
           return (
             <div key={section.key} className="rounded-lg border border-[#334155] overflow-hidden">
-              {/* Sub-section toggle */}
               <button
                 type="button"
-                onClick={() => toggle(section.key)}
+                onClick={() => setExpanded(prev => ({ ...prev, [section.key]: !prev[section.key] }))}
                 className="w-full flex items-center justify-between px-4 py-3 bg-[#0F172A]/60 hover:bg-[#0F172A]/90 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-base">{section.icon}</span>
                   <span className="text-sm font-semibold text-white">{section.title}</span>
                   <span className="text-xs text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded-full leading-none">
                     {items.length}
@@ -283,13 +262,13 @@ function SituationSummary({ summary, hasChildren }) {
 
               {isExpanded && (
                 <div className="divide-y divide-[#334155]/50">
-                  {items.map((text, i) => (
+                  {items.map((card, i) => (
                     <div
                       key={i}
-                      className={`flex gap-3 px-4 py-4 border-l-4 ${section.borderColor} ${section.bg}`}
+                      className={`flex gap-3 px-4 py-4 border-l-4 ${card.border} ${card.bg}`}
                     >
-                      <span className="text-base mt-0.5 flex-shrink-0">{section.icon}</span>
-                      <p className="text-slate-200 text-sm leading-relaxed">{text}</p>
+                      <span className="text-base mt-0.5 flex-shrink-0">{card.icon}</span>
+                      <p className="text-slate-200 text-sm leading-relaxed">{card.text}</p>
                     </div>
                   ))}
                 </div>
@@ -302,34 +281,16 @@ function SituationSummary({ summary, hasChildren }) {
   );
 }
 
-function SkeletonSummary() {
-  return (
-    <div className="bg-[#1E293B] rounded-xl border border-[#334155] overflow-hidden">
-      <div className="px-5 py-4 bg-[#0F172A] border-b border-[#334155]">
-        <div className="h-4 w-48 bg-slate-700 rounded animate-pulse" />
-        <div className="h-3 w-64 bg-slate-800 rounded animate-pulse mt-2" />
-      </div>
-      <div className="p-4 space-y-3">
-        {[1, 2].map(i => (
-          <div key={i} className="rounded-lg border border-[#334155] bg-[#0F172A]/60 p-4 space-y-2">
-            <div className="h-3 bg-slate-700 rounded animate-pulse w-1/3" />
-            <div className="h-3 bg-slate-800 rounded animate-pulse w-full" />
-            <div className="h-3 bg-slate-800 rounded animate-pulse w-4/5" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
 export default function ActionPlan() {
-  const [plan,    setPlan]    = useState(null);   // { thirty_days, ninety_days, this_year }
-  const [loading, setLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-  const [checked, setChecked] = useState(() => loadChecked());
+  const [plan,     setPlan]     = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [isCalling, setIsCalling] = useState(false); // true while the fetch is in-flight
+  const [isError,  setIsError]  = useState(false);
+  const [apiError, setApiError] = useState(null);    // raw error message for debug display
+  const [checked,  setChecked]  = useState(() => loadChecked());
 
   // Generate or load cached plan
   useEffect(() => {
@@ -349,7 +310,9 @@ export default function ActionPlan() {
     }
 
     setLoading(true);
+    setIsCalling(true);
     setIsError(false);
+    setApiError(null);
 
     const risks = analyzeRisks(fd);
 
@@ -358,12 +321,18 @@ export default function ActionPlan() {
         savePlan(hash, result);
         setPlan(result);
         setIsError(false);
+        setApiError(null);
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[ActionPlan] generateActionPlan failed:', err);
         setIsError(true);
+        setApiError(err.message || 'Unknown error');
         setPlan(FALLBACK);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setIsCalling(false);
+      });
   }, []);
 
   // Toggle a checkbox
@@ -397,9 +366,6 @@ export default function ActionPlan() {
   }
 
   // ── Totals for progress bar ───────────────────────────────
-  const hasChildren = !!formData && Array.isArray(formData.children)
-    && formData.children.some(c => parseFloat(c.age) > 0);
-
   const allItems = plan
     ? [...plan.thirty_days, ...plan.ninety_days, ...plan.this_year]
     : [];
@@ -417,12 +383,28 @@ export default function ActionPlan() {
         <h1 className="text-2xl font-bold text-white">Action Plan</h1>
         <p className="text-slate-400 text-sm mt-1">
           {loading
-            ? 'Generating your personalized action plan…'
+            ? isCalling
+              ? '⏳ Calling AI — generating your personalized action plan…'
+              : 'Loading your action plan…'
             : isError
             ? 'Using suggested starter actions — update your profile for personalized items.'
             : 'AI-generated actions based on your profile and risk flags.'}
         </p>
       </div>
+
+      {/* API error debug box — always visible when an API error occurs */}
+      {isError && apiError && (
+        <div className="bg-red-950/60 border border-red-700/60 rounded-lg px-4 py-3">
+          <p className="text-red-400 text-xs font-bold mb-1 uppercase tracking-wide">
+            API Error — showing fallback actions
+          </p>
+          <p className="text-red-300 text-xs font-mono break-all leading-relaxed">{apiError}</p>
+          <p className="text-slate-500 text-xs mt-2">
+            Common causes: rate limit exceeded (10 req/hr), missing API key on server, or upstream timeout.
+            Check the browser console for full details.
+          </p>
+        </div>
+      )}
 
       {/* Progress summary */}
       {!loading && plan && (
@@ -444,14 +426,8 @@ export default function ActionPlan() {
         </div>
       )}
 
-      {/* Situation Summary */}
-      {loading && <SkeletonSummary />}
-      {!loading && plan && plan.situation_summary && (
-        <SituationSummary
-          summary={plan.situation_summary}
-          hasChildren={hasChildren}
-        />
-      )}
+      {/* Your Retirement Picture — computed locally, always visible once formData loads */}
+      {formData && <RetirementPicture formData={formData} />}
 
       {/* Sections */}
       {loading
