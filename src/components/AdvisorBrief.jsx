@@ -39,9 +39,17 @@ function loadFormData() {
 function loadActionPlan() {
   try {
     const raw = localStorage.getItem('nirvana_action_plan');
+    console.log('[AdvisorBrief] nirvana_action_plan raw:', raw ? raw.substring(0, 300) : 'null (key not found)');
     if (!raw) return null;
-    return JSON.parse(raw).plan ?? null;
-  } catch { return null; }
+    const parsed = JSON.parse(raw);
+    console.log('[AdvisorBrief] parsed cache keys:', Object.keys(parsed));
+    const plan = parsed.plan ?? null;
+    console.log('[AdvisorBrief] plan keys:', plan ? Object.keys(plan) : 'null');
+    return plan;
+  } catch (e) {
+    console.error('[AdvisorBrief] loadActionPlan error:', e);
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -705,8 +713,45 @@ export default function AdvisorBrief() {
         })()}
       </SectionBlock>
 
-      {/* ── Section 4: Action Plan ─────────────────────────── */}
-      <SectionBlock number="4" title="Your Action Plan">
+      {/* ── Section 4: Situation at a Glance ──────────────── */}
+      {actionPlan && actionPlan.situation_summary && (() => {
+        const ss = actionPlan.situation_summary;
+        const hasChildren = Array.isArray(formData.children)
+          && formData.children.some(c => num(c.age) > 0);
+
+        const summaryCategories = [
+          { key: 'household',     label: 'You & Your Household',          show: (ss.household     || []).length > 0 },
+          { key: 'kids',          label: 'Your Kids',                      show: hasChildren && (ss.kids || []).length > 0 },
+          { key: 'opportunities', label: 'Opportunities You May Be Missing', show: (ss.opportunities || []).length > 0 },
+        ].filter(c => c.show);
+
+        if (summaryCategories.length === 0) return null;
+
+        return (
+          <SectionBlock number="4" title="Your Situation at a Glance">
+            <div className="space-y-4">
+              {summaryCategories.map(cat => (
+                <div key={cat.key}>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                    {cat.label}
+                  </p>
+                  <ul className="space-y-1.5 list-disc list-outside ml-4">
+                    {(ss[cat.key] || []).map((item, i) => (
+                      <li key={i} className="text-slate-300 text-xs leading-relaxed">{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </SectionBlock>
+        );
+      })()}
+
+      {/* ── Section 4 or 5: Action Plan ───────────────────── */}
+      <SectionBlock
+        number={actionPlan && actionPlan.situation_summary ? '5' : '4'}
+        title="Your Action Plan"
+      >
         {!actionPlan ? (
           <p className="text-slate-500 text-sm italic">
             Generate your Action Plan first, then return here to include it in your brief.{' '}

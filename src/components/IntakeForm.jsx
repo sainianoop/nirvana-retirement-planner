@@ -82,6 +82,10 @@ const DEFAULT_STATE = {
 
   // Section 4 — Additional factors
   hasConcentratedStock: false,
+  concentration_pct: 40,
+  concentration_cost_basis: '',
+  concentration_current_value: '',
+  concentration_stock_name: '',
   retiringBeforeAge65: false,
   livingAbroadPlanned: false,
   liquidityEventExpected: false,
@@ -1143,6 +1147,129 @@ export default function IntakeForm() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {ADDITIONAL_FACTORS.map(({ key, title, desc }) => {
             const selected = form[key];
+
+            // Concentrated Position gets special inline expansion
+            if (key === 'hasConcentratedStock') {
+              const costBasis    = parseFloat(form.concentration_cost_basis)   || 0;
+              const currValue    = parseFloat(form.concentration_current_value) || 0;
+              const unrealGain   = costBasis > 0 && currValue > 0 ? currValue - costBasis : null;
+              const estimatedTax = unrealGain !== null ? Math.round(unrealGain * 0.238) : null;
+              return (
+                <div
+                  key={key}
+                  className={
+                    (selected ? 'sm:col-span-2' : '') +
+                    ' rounded-xl border transition-all ' +
+                    (selected
+                      ? 'border-[#F59E0B] bg-[#F59E0B]/10 ring-1 ring-[#F59E0B]/20'
+                      : 'border-[#334155] bg-[#0F172A] hover:border-[#475569]')
+                  }
+                >
+                  {/* Toggle row */}
+                  <button
+                    type="button"
+                    onClick={() => set(key, !selected)}
+                    className="w-full text-left p-4"
+                  >
+                    <p className={`text-sm font-semibold mb-1 ${selected ? 'text-[#F59E0B]' : 'text-white'}`}>
+                      {title}
+                    </p>
+                    <p className="text-xs text-slate-400 leading-snug">{desc}</p>
+                  </button>
+
+                  {/* Expansion fields */}
+                  {selected && (
+                    <div className="px-4 pb-4 space-y-4 border-t border-[#F59E0B]/20 pt-4">
+                      {/* Concentration % slider */}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-2">
+                          Approximately what % of your portfolio is in this position?
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            min="30" max="90" step="5"
+                            value={form.concentration_pct}
+                            onChange={e => set('concentration_pct', Number(e.target.value))}
+                            className="flex-1 accent-[#F59E0B]"
+                          />
+                          <span className="text-[#F59E0B] font-bold text-sm w-10 text-right">
+                            {form.concentration_pct}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cost basis + current value */}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-2">
+                          Approximate cost basis vs. current value
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Original cost:</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={formatCommas(form.concentration_cost_basis)}
+                                onChange={e => set('concentration_cost_basis', e.target.value.replace(/[^0-9]/g, ''))}
+                                placeholder="0"
+                                className={inputClass + ' pl-6'}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Current value:</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={formatCommas(form.concentration_current_value)}
+                                onChange={e => set('concentration_current_value', e.target.value.replace(/[^0-9]/g, ''))}
+                                placeholder="0"
+                                className={inputClass + ' pl-6'}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        {/* Auto-computed gain */}
+                        {unrealGain !== null && (
+                          <p className="text-xs text-slate-400 mt-2">
+                            Unrealized gain:{' '}
+                            <span className="text-amber-300 font-semibold">
+                              ${Math.round(unrealGain).toLocaleString()}
+                            </span>
+                            {' '}(estimated tax if sold:{' '}
+                            <span className="text-red-400 font-semibold">
+                              ${estimatedTax.toLocaleString()}
+                            </span>{' '}
+                            at 23.8% LTCG)
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Stock name (optional) */}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                          Which stock or asset? <span className="text-slate-500 font-normal">(optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={form.concentration_stock_name}
+                          onChange={e => set('concentration_stock_name', e.target.value)}
+                          placeholder="e.g. Apple, Walmart RSUs, company stock"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // Default card
             return (
               <button
                 key={key}

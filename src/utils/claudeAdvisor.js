@@ -26,10 +26,22 @@ function buildDataContext(riskId, formData) {
   const yearsOut   = retireAge - userAge;
   const reEquity   = num(formData.equityPrimaryHome) + num(formData.equityRental);
 
+  const concentrationPct  = num(formData.concentration_pct) || 40;
+  const concentrationCost = num(formData.concentration_cost_basis);
+  const concentrationCurr = num(formData.concentration_current_value);
+  const concentrationGain = (concentrationCurr > 0 && concentrationCost > 0) ? concentrationCurr - concentrationCost : null;
+  const concentrationTax  = concentrationGain !== null ? Math.round(concentrationGain * 0.238) : null;
+
   const contexts = {
     'concentration-risk': {
       totalInvestableAssets: fmt(investable),
-      note: 'User self-reported a concentrated position: 30%+ of portfolio in 1–3 stocks with large unrealized gains.',
+      concentrationPct:    concentrationPct + '%',
+      ...(formData.concentration_stock_name ? { stockName: formData.concentration_stock_name } : {}),
+      ...(concentrationCost > 0 ? { costBasis: fmt(concentrationCost) } : {}),
+      ...(concentrationCurr > 0 ? { currentValue: fmt(concentrationCurr) } : {}),
+      ...(concentrationGain !== null ? { unrealizedGain: fmt(concentrationGain) } : {}),
+      ...(concentrationTax  !== null ? { estimatedTaxIfSold: fmt(concentrationTax) + ' (at 23.8% LTCG rate)' } : {}),
+      note: 'User self-reported a concentrated position.',
     },
 
     'healthcare-bridge': {
@@ -236,6 +248,8 @@ export async function generateActionPlan(formData, risks) {
       })()
     : '';
 
+  const hasChildren = Array.isArray(formData.children) && formData.children.some(c => num(c.age) > 0);
+
   const prompt = `You are a retirement planning assistant helping a financial planner's client build a personalized action plan.
 
 Client profile:
@@ -252,21 +266,43 @@ ${additionalContext ? `\nAdditional context from client: "${additionalContext}"`
 ${ssContext}
 ${childrenContext}
 
-Generate a concrete, personalized retirement action plan in three time buckets: Next 30 Days, Next 90 Days, This Year. Each bucket should have 3-5 specific action items. Each action item should be one sentence, specific and named (e.g. 'Increase 401k contribution to IRS maximum of $23,000' not 'Save more for retirement'). Reference the user's actual numbers where relevant. Do not give investment advice — recommend actions and advisor conversations.
+PART 1 — Situation Summary:
+Before the action plan, generate a "situation_summary" — a set of human-centric narrative statements explaining what is specifically at stake for this household, using their actual numbers.
 
-Return JSON only in this format:
+Write 2–4 statements per category. Each statement is no longer than 2 sentences. Use second-person, conversational English. Explain the CONSEQUENCE of inaction, not just the risk name. Use specific dollar amounts and ages wherever possible.
+
+Categories:
+- "household": key financial risks or realities for this household (e.g. tax exposure from concentrated stock, healthcare gap, RMD timing, sequence-of-returns risk)
+- "opportunities": things they may be missing — HSA, Roth conversion window, SS delay value, tax-loss harvesting, etc.
+- "kids": college funding realities with specific timelines and projected costs (ONLY include this category if they have children)
+
+Example household statement: "Your $1.2M stock position has likely grown significantly — but selling it all today could trigger a tax bill equivalent to 3–4 years of retirement expenses. A structured exit strategy over 5–7 years could save you $200K+ in taxes."
+Example opportunity statement: "Social Security at 70 vs 62 is a difference of 77% more per month for life. Given your portfolio size, delaying to 70 could be worth $300,000+ in lifetime income if you live past 80."
+Example kids statement: "4 years of in-state college currently costs ~$140,000 — and will be higher by the time your child enrolls. Your current 529 trajectory covers less than 1 year of that cost."
+
+PART 2 — Action Plan:
+Generate a concrete, personalized retirement action plan in three time buckets: Next 30 Days, Next 90 Days, This Year. Each bucket should have 3–5 specific action items. Each action item should be one sentence, specific and named (e.g. 'Increase 401k contribution to IRS maximum of $23,000' not 'Save more for retirement'). Reference actual numbers where relevant. Do not give investment advice — recommend actions and advisor conversations.
+
+Return JSON only in this exact format (no markdown, no extra text):
 {
+  "situation_summary": {
+    "household": ["statement 1", "statement 2"],
+    "opportunities": ["statement 1"],
+    "kids": ["statement 1"]
+  },
   "thirty_days": ["action 1", "action 2", ...],
   "ninety_days": ["action 1", "action 2", ...],
   "this_year": ["action 1", "action 2", ...]
-}`;
+}
+
+${!hasChildren ? 'Note: Do NOT include a "kids" key in situation_summary — this client has no children.' : ''}`;
 
   const response = await fetch('/api/generate', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1200,
+      max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -293,9 +329,18 @@ Return JSON only in this format:
     throw new Error('Invalid response structure from Claude');
   }
 
+  // situation_summary is optional — gracefully absent in error/fallback cases
+  const ss = parsed.situation_summary;
+  const situationSummary = ss && typeof ss === 'object' ? {
+    household:     Array.isArray(ss.household)     ? ss.household     : [],
+    opportunities: Array.isArray(ss.opportunities) ? ss.opportunities : [],
+    kids:          Array.isArray(ss.kids)           ? ss.kids          : [],
+  } : null;
+
   return {
-    thirty_days: parsed.thirty_days,
-    ninety_days: parsed.ninety_days,
-    this_year:   parsed.this_year,
+    thirty_days:       parsed.thirty_days,
+    ninety_days:       parsed.ninety_days,
+    this_year:         parsed.this_year,
+    situation_summary: situationSummary,
   };
 }

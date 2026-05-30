@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { generateActionPlan } from '../utils/claudeAdvisor';
 import { analyzeRisks } from '../utils/riskEngine';
@@ -27,6 +27,7 @@ const FALLBACK = {
     'Review asset allocation across all accounts — rebalance if target weights have drifted',
     'Explore Roth conversion if you expect lower income this year than in retirement',
   ],
+  situation_summary: null,
 };
 
 const SECTIONS = [
@@ -200,6 +201,128 @@ function ActionSection({ section, items, checked, onToggle }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Situation Summary component
+// ─────────────────────────────────────────────────────────────
+const SUMMARY_SECTIONS = [
+  {
+    key: 'household',
+    title: 'You & Your Household',
+    icon: '⚠️',
+    borderColor: 'border-red-500',
+    bg: 'bg-red-950/30',
+  },
+  {
+    key: 'kids',
+    title: 'Your Kids',
+    icon: '👨‍👩‍👧',
+    borderColor: 'border-blue-500',
+    bg: 'bg-blue-950/30',
+  },
+  {
+    key: 'opportunities',
+    title: 'Opportunities You May Be Missing',
+    icon: '💡',
+    borderColor: 'border-green-500',
+    bg: 'bg-green-950/30',
+  },
+];
+
+function SituationSummary({ summary, hasChildren }) {
+  const [expanded, setExpanded] = useState({ household: true, kids: true, opportunities: true });
+
+  const visibleSections = useMemo(() => {
+    return SUMMARY_SECTIONS.filter(s => {
+      if (s.key === 'kids' && !hasChildren) return false;
+      return (summary[s.key] || []).length > 0;
+    });
+  }, [summary, hasChildren]);
+
+  if (visibleSections.length === 0) return null;
+
+  function toggle(key) {
+    setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  return (
+    <div className="bg-[#1E293B] rounded-xl border border-[#334155] overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 bg-[#0F172A] border-b border-[#334155] flex items-center gap-3">
+        <span className="text-[#F59E0B] font-black text-lg leading-none w-6 shrink-0">◆</span>
+        <div>
+          <h2 className="font-bold text-[#F59E0B] text-base">Your Retirement Picture</h2>
+          <p className="text-slate-500 text-xs mt-0.5">What's specifically at stake for your household</p>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {visibleSections.map(section => {
+          const items = summary[section.key] || [];
+          const isExpanded = expanded[section.key];
+          return (
+            <div key={section.key} className="rounded-lg border border-[#334155] overflow-hidden">
+              {/* Sub-section toggle */}
+              <button
+                type="button"
+                onClick={() => toggle(section.key)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-[#0F172A]/60 hover:bg-[#0F172A]/90 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{section.icon}</span>
+                  <span className="text-sm font-semibold text-white">{section.title}</span>
+                  <span className="text-xs text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded-full leading-none">
+                    {items.length}
+                  </span>
+                </div>
+                <svg
+                  className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {isExpanded && (
+                <div className="divide-y divide-[#334155]/50">
+                  {items.map((text, i) => (
+                    <div
+                      key={i}
+                      className={`flex gap-3 px-4 py-4 border-l-4 ${section.borderColor} ${section.bg}`}
+                    >
+                      <span className="text-base mt-0.5 flex-shrink-0">{section.icon}</span>
+                      <p className="text-slate-200 text-sm leading-relaxed">{text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SkeletonSummary() {
+  return (
+    <div className="bg-[#1E293B] rounded-xl border border-[#334155] overflow-hidden">
+      <div className="px-5 py-4 bg-[#0F172A] border-b border-[#334155]">
+        <div className="h-4 w-48 bg-slate-700 rounded animate-pulse" />
+        <div className="h-3 w-64 bg-slate-800 rounded animate-pulse mt-2" />
+      </div>
+      <div className="p-4 space-y-3">
+        {[1, 2].map(i => (
+          <div key={i} className="rounded-lg border border-[#334155] bg-[#0F172A]/60 p-4 space-y-2">
+            <div className="h-3 bg-slate-700 rounded animate-pulse w-1/3" />
+            <div className="h-3 bg-slate-800 rounded animate-pulse w-full" />
+            <div className="h-3 bg-slate-800 rounded animate-pulse w-4/5" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
 export default function ActionPlan() {
@@ -274,6 +397,9 @@ export default function ActionPlan() {
   }
 
   // ── Totals for progress bar ───────────────────────────────
+  const hasChildren = !!formData && Array.isArray(formData.children)
+    && formData.children.some(c => parseFloat(c.age) > 0);
+
   const allItems = plan
     ? [...plan.thirty_days, ...plan.ninety_days, ...plan.this_year]
     : [];
@@ -316,6 +442,15 @@ export default function ActionPlan() {
             />
           </div>
         </div>
+      )}
+
+      {/* Situation Summary */}
+      {loading && <SkeletonSummary />}
+      {!loading && plan && plan.situation_summary && (
+        <SituationSummary
+          summary={plan.situation_summary}
+          hasChildren={hasChildren}
+        />
       )}
 
       {/* Sections */}
